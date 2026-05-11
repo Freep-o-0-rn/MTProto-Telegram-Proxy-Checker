@@ -7,6 +7,12 @@ import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -41,6 +47,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -140,6 +147,7 @@ fun ProxyApp(viewModel: ProxyViewModel) {
     val showOnlyFavorites = viewModel.showOnlyFavorites
     val checkedCount = viewModel.checkedCount
     val totalCount = viewModel.totalCount
+    val checkingProxyKeys = viewModel.checkingProxyKeys
 
     LaunchedEffect(Unit) {
         viewModel.loadOnce()
@@ -180,7 +188,7 @@ fun ProxyApp(viewModel: ProxyViewModel) {
                             fontWeight = FontWeight.Bold
                         )
                         Text(
-                            text = "Telegram proxy checker",
+                            text = "Telegram proxy checker by FreeP0rn",
                             color = TextMuted,
                             style = MaterialTheme.typography.bodySmall
                         )
@@ -334,11 +342,15 @@ fun ProxyApp(viewModel: ProxyViewModel) {
                     ProxyItem(
                         proxy = proxy,
                         isSmallScreen = isSmallScreen,
+                        isChecking = checkingProxyKeys.contains(proxy.cacheKey),
                         onConnectClick = {
                             openTelegramProxy(context, proxy)
                         },
                         onFavoriteClick = {
                             viewModel.toggleFavorite(proxy)
+                        },
+                        onRecheckClick = {
+                            viewModel.recheckProxy(proxy)
                         }
                     )
                 }
@@ -392,8 +404,10 @@ fun StatsCard(
 fun ProxyItem(
     proxy: MtProxy,
     isSmallScreen: Boolean,
+    isChecking: Boolean,
     onConnectClick: () -> Unit,
-    onFavoriteClick: () -> Unit
+    onFavoriteClick: () -> Unit,
+    onRecheckClick: () -> Unit
 ) {
     val cardPadding = if (isSmallScreen) 10.dp else 14.dp
     val secretLength = if (isSmallScreen) 8 else 12
@@ -436,7 +450,7 @@ fun ProxyItem(
             modifier = Modifier.padding(cardPadding)
         ) {
             Row(
-                verticalAlignment = Alignment.CenterVertically
+                verticalAlignment = Alignment.Top
             ) {
                 Text(
                     text = "${proxy.server}:${proxy.port}",
@@ -448,18 +462,29 @@ fun ProxyItem(
 
                 Spacer(modifier = Modifier.width(8.dp))
 
-                Button(
-                    onClick = onFavoriteClick,
-                    shape = RoundedCornerShape(12.dp),
-                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = if (proxy.isFavorite) AccentYellow else Color(0xFF19364F),
-                        contentColor = if (proxy.isFavorite) Color.Black else TextMain
-                    )
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    Text(
-                        text = if (proxy.isFavorite) "★" else "☆",
-                        fontWeight = FontWeight.Bold
+                    Button(
+                        onClick = onFavoriteClick,
+                        shape = RoundedCornerShape(12.dp),
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = if (proxy.isFavorite) AccentYellow else Color(0xFF19364F),
+                            contentColor = if (proxy.isFavorite) Color.Black else TextMain
+                        )
+                    ) {
+                        Text(
+                            text = if (proxy.isFavorite) "★" else "☆",
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    RecheckButton(
+                        isChecking = isChecking,
+                        onClick = onRecheckClick
                     )
                 }
             }
@@ -526,6 +551,52 @@ fun ProxyItem(
                 )
             }
         }
+    }
+}
+
+@Composable
+fun RecheckButton(
+    isChecking: Boolean,
+    onClick: () -> Unit
+) {
+    val infiniteTransition = rememberInfiniteTransition(label = "recheck_rotation")
+
+    val rotation = if (isChecking) {
+        infiniteTransition.animateFloat(
+            initialValue = 0f,
+            targetValue = 360f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(
+                    durationMillis = 900,
+                    easing = LinearEasing
+                ),
+                repeatMode = RepeatMode.Restart
+            ),
+            label = "rotation"
+        ).value
+    } else {
+        0f
+    }
+
+    Button(
+        onClick = onClick,
+        enabled = !isChecking,
+        shape = RoundedCornerShape(12.dp),
+        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+        colors = ButtonDefaults.buttonColors(
+            containerColor = Color(0xFF19364F),
+            contentColor = TextMain,
+            disabledContainerColor = Color(0xFF19364F),
+            disabledContentColor = TextMain
+        )
+    ) {
+        Text(
+            text = "↻",
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.graphicsLayer {
+                rotationZ = rotation
+            }
+        )
     }
 }
 

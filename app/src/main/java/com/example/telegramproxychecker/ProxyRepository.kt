@@ -29,6 +29,10 @@ class ProxyRepository {
         }
     }
 
+    suspend fun recheckOneProxy(proxy: MtProxy): MtProxy {
+        return checkSingleProxy(proxy)
+    }
+
     suspend fun loadAndCheckProxies(
         cachedProxies: List<MtProxy>,
         force: Boolean = false,

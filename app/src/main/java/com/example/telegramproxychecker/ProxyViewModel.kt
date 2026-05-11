@@ -28,6 +28,9 @@ class ProxyViewModel(application: Application) : AndroidViewModel(application) {
     var showOnlyFavorites by mutableStateOf(false)
         private set
 
+    var checkingProxyKeys by mutableStateOf<Set<String>>(emptySet())
+        private set
+
     var checkedCount by mutableStateOf(0)
         private set
 
@@ -65,17 +68,31 @@ class ProxyViewModel(application: Application) : AndroidViewModel(application) {
                 proxies = repository.sortProxies(cached)
             }
 
+            val currentBeforeRefresh = proxies
+
+            val baseForCache = if (currentBeforeRefresh.isNotEmpty()) {
+                currentBeforeRefresh
+            } else {
+                cached
+            }
+
             try {
                 val result = repository.loadAndCheckProxies(
-                    cachedProxies = cached,
+                    cachedProxies = baseForCache,
                     force = force
                 ) { checked, total ->
                     checkedCount = checked
                     totalCount = total
                 }
 
-                proxies = result
-                cache.saveProxies(result)
+                val resultWithFavorites = applyFavorites(
+                    freshList = result,
+                    oldList = baseForCache
+                )
+
+                proxies = repository.sortProxies(resultWithFavorites)
+                cache.saveProxies(proxies)
+
             } catch (e: Exception) {
                 error = if (proxies.isNotEmpty()) {
                     "Не удалось обновить. Показан сохранённый список."
@@ -85,6 +102,38 @@ class ProxyViewModel(application: Application) : AndroidViewModel(application) {
             }
 
             isLoading = false
+        }
+    }
+
+    fun recheckProxy(proxy: MtProxy) {
+        if (checkingProxyKeys.contains(proxy.cacheKey)) return
+
+        checkingProxyKeys = checkingProxyKeys + proxy.cacheKey
+
+        viewModelScope.launch {
+            try {
+                val checked = repository.recheckOneProxy(proxy)
+
+                val checkedWithFavorite = checked.copy(
+                    isFavorite = proxy.isFavorite
+                )
+
+                val updated = proxies.map {
+                    if (it.cacheKey == proxy.cacheKey) {
+                        checkedWithFavorite
+                    } else {
+                        it
+                    }
+                }
+
+                proxies = repository.sortProxies(updated)
+                cache.saveProxies(proxies)
+
+            } catch (e: Exception) {
+                error = e.message ?: "Ошибка точечной проверки"
+            }
+
+            checkingProxyKeys = checkingProxyKeys - proxy.cacheKey
         }
     }
 
@@ -107,5 +156,21 @@ class ProxyViewModel(application: Application) : AndroidViewModel(application) {
 
         proxies = repository.sortProxies(updated)
         cache.saveProxies(proxies)
+    }
+
+    private fun applyFavorites(
+        freshList: List<MtProxy>,
+        oldList: List<MtProxy>
+    ): List<MtProxy> {
+        val favoriteKeys = oldList
+            .filter { it.isFavorite }
+            .map { it.cacheKey }
+            .toSet()
+
+        return freshList.map { proxy ->
+            proxy.copy(
+                isFavorite = proxy.isFavorite || proxy.cacheKey in favoriteKeys
+            )
+        }
     }
 }
