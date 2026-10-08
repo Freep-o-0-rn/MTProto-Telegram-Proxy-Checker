@@ -65,7 +65,11 @@ class ProxyRepository internal constructor(
         configureParallelChecks(workerCount)
         val sourceProxies = try {
             val githubProxies = if (mtprotoEnabled) (mtprotoProxies ?: loadProxies()) else emptyList()
-            mergeGithubWithCache((githubProxies + socksProxies).distinctBy { it.cacheKey }, cachedProxies)
+            mergeGithubWithCache(
+                (githubProxies + socksProxies).distinctBy { it.cacheKey },
+                cachedProxies,
+                preserveExisting = tcpOkOnly
+            )
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -122,7 +126,14 @@ class ProxyRepository internal constructor(
             try {
                 repeat(queue.size) { index ->
                     val result = completed.receive()
-                current[result.cacheKey] = result
+                // Quick "Проверка" is additive: it can discover or refresh
+                // Telegram OK, but a transient TCP/TDLib failure must not
+                // erase a previous confirmed Telegram OK from a full scan.
+                // Keep the previous verification timestamp on failed retries.
+                val previous = current[result.cacheKey]
+                current[result.cacheKey] = if (
+                    tcpOkOnly && previous?.telegramOk == true && result.telegramOk != true
+                ) previous else result
                 onProgress(index + 1, queue.size)
                 val now = nowMillis()
                 if (index == 0 || index == queue.lastIndex || now - lastUpdate >= RESULT_UPDATE_INTERVAL_MS) {
@@ -168,7 +179,8 @@ class ProxyRepository internal constructor(
 
     private fun mergeGithubWithCache(
         githubProxies: List<MtProxy>,
-        cachedProxies: List<MtProxy>
+        cachedProxies: List<MtProxy>,
+        preserveExisting: Boolean = false
     ): List<MtProxy> {
         val cachedMap = cachedProxies.associateBy { it.cacheKey }
 
@@ -194,7 +206,7 @@ class ProxyRepository internal constructor(
 
         val retained = cachedProxies.filter {
             it.cacheKey !in githubKeys &&
-                (it.isFavorite || it.protocol == ProxySourceProtocol.SOCKS5)
+                (preserveExisting || it.isFavorite || it.protocol == ProxySourceProtocol.SOCKS5)
         }
         return (mergedFromGithub + retained).distinctBy { it.cacheKey }
     }
