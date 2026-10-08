@@ -56,7 +56,13 @@ class ProxyViewModel(application: Application) : AndroidViewModel(application) {
             } catch (e: Exception) {
                 ScanSession.setError(e.message ?: "Ошибка загрузки кэша")
             }
-            if (!ScanSession.state.value.running) refresh()
+            // Opening the app again must not immediately repeat a completed background scan.
+            // Results (including failures) have already been written to the persistent cache.
+            val now = System.currentTimeMillis()
+            val hasRecentChecks = ScanSession.state.value.proxies.any { proxy ->
+                proxy.checkedAt?.let { now - it in 0 until 30L * 60L * 1000L } == true
+            }
+            if (!ScanSession.state.value.running && !hasRecentChecks) refresh()
         }
     }
 

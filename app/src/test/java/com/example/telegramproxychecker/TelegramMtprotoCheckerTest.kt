@@ -135,10 +135,14 @@ class TelegramMtprotoCheckerTest {
     }
 
     @Test
-    fun tcpFailureNeverCreatesTdlibClient() = runTest {
-        val checker = TelegramMtprotoChecker({ error("Must not create client") })
+    fun explicitTelegramProbeCanSucceedEvenIfJavaTcpCheckFailed() = runTest {
+        val client = FakeTelegramClient(backgroundScope) {
+            100L to TelegramCheckResult(true, 100, null)
+        }
+        val checker = TelegramMtprotoChecker({ client }, StandardTestDispatcher(testScheduler))
         val result = checker.check(testProxy().copy(tcpOk = false))
-        assertEquals(false, result.telegramOk)
-        assertEquals("TCP недоступен", result.telegramError)
+        assertEquals(false, result.tcpOk)
+        assertEquals(true, result.telegramOk)
+        assertEquals(1, client.started.size)
     }
 }

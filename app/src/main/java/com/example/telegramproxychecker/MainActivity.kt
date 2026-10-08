@@ -2,6 +2,8 @@ package com.example.telegramproxychecker
 
 import android.content.Context
 import android.content.Intent
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Build
@@ -176,9 +178,10 @@ fun ProxyApp(viewModel: ProxyViewModel) {
 
     val telegramOkCount = remember(proxies) { proxies.count { it.telegramOk == true } }
     val telegramFailCount = remember(proxies) {
-        proxies.count { it.telegramOk == false && it.tcpOk == true }
+        proxies.count { it.telegramOk == false && it.telegramError != "TCP недоступен" }
     }
     val favoriteCount = remember(proxies) { proxies.count { it.isFavorite } }
+    val telegramFailures = remember(proxies) { topProxyFailures(proxies) }
 
     val visibleProxies = remember(proxies, showOnlyAvailable, showOnlyFavorites) {
         proxies.filter {
@@ -255,6 +258,23 @@ fun ProxyApp(viewModel: ProxyViewModel) {
                 }
 
                 item {
+                    if (proxies.isNotEmpty() && !isLoading) {
+                        Button(
+                            onClick = { viewModel.refresh(force = true) },
+                            enabled = checkingProxyKeys.isEmpty(),
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(16.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = Color(0xFF19364F),
+                                contentColor = TextMain
+                            )
+                        ) {
+                            Text("Полная Telegram-проверка (${proxies.size})")
+                        }
+                    }
+                }
+
+                item {
                     if (isLoading) {
                         LoadingProgressCard(
                             checkedCount = checkedCount,
@@ -291,7 +311,18 @@ fun ProxyApp(viewModel: ProxyViewModel) {
                         telegramFail = telegramFailCount,
                         favorites = favoriteCount,
                         visible = visibleProxies.size,
-                        cardPadding = cardPadding
+                        cardPadding = cardPadding,
+                        telegramFailures = telegramFailures,
+                        onCopyDiagnostics = {
+                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                            clipboard.setPrimaryClip(
+                                ClipData.newPlainText(
+                                    "Telegram proxy diagnostics",
+                                    buildProxyDiagnostics(proxies, checkedCount, totalCount)
+                                )
+                            )
+                            Toast.makeText(context, "Диагностика скопирована без secret", Toast.LENGTH_SHORT).show()
+                        }
                     )
                 }
 
@@ -373,7 +404,7 @@ fun ProxyApp(viewModel: ProxyViewModel) {
 }
 
 @Composable
-fun StatsCard(
+internal fun StatsCard(
     total: Int,
     tcpOk: Int,
     tcpFail: Int,
@@ -381,7 +412,9 @@ fun StatsCard(
     telegramFail: Int,
     favorites: Int,
     visible: Int,
-    cardPadding: androidx.compose.ui.unit.Dp
+    cardPadding: androidx.compose.ui.unit.Dp,
+    telegramFailures: List<ProxyFailureCount>,
+    onCopyDiagnostics: () -> Unit
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -409,6 +442,18 @@ fun StatsCard(
             Text("Telegram FAIL: $telegramFail", color = AccentRed)
             Text("Избранных: $favorites", color = AccentYellow)
             Text("Показано: $visible", color = TextMuted)
+
+            if (telegramFailures.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Text("Основные причины Telegram FAIL:", color = TextMain, fontWeight = FontWeight.Bold)
+                telegramFailures.forEach { failure ->
+                    Text("${failure.count} × ${failure.reason.take(130)}", color = TextMuted)
+                }
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+            Button(onClick = onCopyDiagnostics) {
+                Text("Скопировать диагностику")
+            }
         }
     }
 }
@@ -438,16 +483,20 @@ fun ProxyItem(
         null -> TextMuted
     }
 
-    val telegramText = when (proxy.telegramOk) {
-        true -> "Telegram: OK, ${formatMs(proxy.telegramPingMs)}"
-        false -> "Telegram: FAIL"
-        null -> "Telegram: не проверен"
+    // A failed quick TCP precheck is NOT a completed Telegram TestProxy request.
+    val telegramWasSkipped = proxy.tcpOk == false && proxy.telegramError == "TCP недоступен"
+    val telegramText = when {
+        telegramWasSkipped -> "Telegram: не проверен (TCP FAIL)"
+        proxy.telegramOk == true -> "Telegram: OK, ${formatMs(proxy.telegramPingMs)}"
+        proxy.telegramOk == false -> "Telegram: FAIL"
+        else -> "Telegram: не проверен"
     }
 
-    val telegramColor = when (proxy.telegramOk) {
-        true -> AccentGreen
-        false -> AccentRed
-        null -> AccentYellow
+    val telegramColor = when {
+        telegramWasSkipped -> AccentYellow
+        proxy.telegramOk == true -> AccentGreen
+        proxy.telegramOk == false -> AccentRed
+        else -> AccentYellow
     }
 
     Card(
@@ -550,7 +599,7 @@ fun ProxyItem(
 
             Button(
                 onClick = onConnectClick,
-                enabled = proxy.tcpOk == true,
+                enabled = proxy.telegramOk == true || proxy.tcpOk == true,
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(14.dp),
                 colors = ButtonDefaults.buttonColors(

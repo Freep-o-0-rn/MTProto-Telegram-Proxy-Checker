@@ -33,15 +33,14 @@ class TelegramMtprotoChecker internal constructor(
     private val dcIds = listOf(1, 2, 3, 4, 5)
 
     suspend fun check(proxy: MtProxy): MtProxy {
-        if (proxy.tcpOk != true) {
-            return proxy.copy(
-                telegramOk = false,
-                telegramPingMs = null,
-                telegramError = "TCP недоступен"
-            )
+        // TDLib may use a different network resolution/connection path than java.net.Socket.
+        // The caller decides whether to perform this expensive check after TCP FAIL.
+        val result = try {
+            withContext(dispatcher) { testProxy(proxy) }
+        } catch (e: LinkageError) {
+            // A broken or missing tdjni binary is not a proxy failure. Report it explicitly.
+            TelegramCheckResult(false, null, "TDLib JNI недоступна: " + (e.message ?: e.javaClass.simpleName))
         }
-
-        val result = withContext(dispatcher) { testProxy(proxy) }
         return proxy.copy(
             telegramOk = result.ok,
             telegramPingMs = result.pingMs,
@@ -124,7 +123,9 @@ private class TdlibProbeClient : TelegramProbeClient {
         client.send(request, Client.ResultHandler { response ->
             onResult(when (response) {
                 is TdApi.Ok -> TelegramCheckResult(true, (System.nanoTime() - start) / 1_000_000, null)
-                is TdApi.Error -> TelegramCheckResult(false, null, response.message)
+                is TdApi.Error -> TelegramCheckResult(
+                    false, null, "TDLib " + response.code + ": " + response.message
+                )
                 else -> TelegramCheckResult(false, null, "Неожиданный ответ TDLib")
             })
         })

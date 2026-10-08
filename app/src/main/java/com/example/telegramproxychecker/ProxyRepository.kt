@@ -37,7 +37,7 @@ class ProxyRepository internal constructor(
     suspend fun loadProxies(): List<MtProxy> = sourceLoader()
 
     suspend fun recheckOneProxy(proxy: MtProxy): MtProxy {
-        return checkSingleProxy(proxy)
+        return checkSingleProxy(proxy, verifyDespiteTcpFailure = true)
     }
 
     suspend fun loadAndCheckProxies(
@@ -81,7 +81,7 @@ class ProxyRepository internal constructor(
                 launch {
                     for (proxy in pending) {
                         beforeCheck()
-                        completed.send(checkSingleProxy(proxy))
+                        completed.send(checkSingleProxy(proxy, verifyDespiteTcpFailure = force))
                     }
                 }
             }
@@ -111,10 +111,13 @@ class ProxyRepository internal constructor(
         }
     }
 
-    private suspend fun checkSingleProxy(proxy: MtProxy): MtProxy = checkSlots.withPermit {
+    private suspend fun checkSingleProxy(
+        proxy: MtProxy,
+        verifyDespiteTcpFailure: Boolean = false
+    ): MtProxy = checkSlots.withPermit {
         val tcpChecked = tcpCheck(proxy)
 
-        val telegramChecked = if (tcpChecked.tcpOk == true) {
+        val telegramChecked = if (tcpChecked.tcpOk == true || verifyDespiteTcpFailure) {
             telegramCheck(tcpChecked)
         } else {
             tcpChecked
@@ -171,11 +174,11 @@ class ProxyRepository internal constructor(
             return now - checkedAt in 0 until CHECK_FRESH_MS
         }
 
-        val needCheck = if (force) {
-            proxies
-        } else {
-            proxies.filterNot { isFresh(it) }
-        }
+        // A forced scan must bypass *both* the freshness window and
+        // MAX_OLD_FAIL_RECHECK. The cap applies only to incremental scans.
+        if (force) return proxies.distinctBy { it.cacheKey }
+
+        val needCheck = proxies.filterNot { isFresh(it) }
 
         val oldTelegramOk = needCheck
             .filter { it.telegramOk == true }
@@ -183,9 +186,11 @@ class ProxyRepository internal constructor(
         val newProxies = needCheck
             .filter { it.checkedAt == null }
 
+        // Rotate failures by oldest check. Using source order here permanently starves
+        // proxies beyond the first 20 when the GitHub list stays unchanged.
         val oldTelegramFail = needCheck
-            .filter { it.checkedAt != null }
-            .filter { it.telegramOk == false }
+            .filter { it.checkedAt != null && it.telegramOk == false }
+            .sortedBy { it.checkedAt }
             .take(MAX_OLD_FAIL_RECHECK)
 
         val unknown = needCheck
