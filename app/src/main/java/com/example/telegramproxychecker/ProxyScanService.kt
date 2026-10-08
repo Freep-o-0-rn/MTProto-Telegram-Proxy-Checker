@@ -96,10 +96,34 @@ class ProxyScanService : Service() {
                 scanJob = scope.launch {
                     try {
                         ScanSession.loadCache(applicationContext)
+                        val context = applicationContext
+                        val mtprotoEnabled = ProxySourceSettings.mtprotoEnabled(context)
+                        val socks5Enabled = ProxySourceSettings.socks5Enabled(context)
+                        val fullLimit = if (ProxySourceSettings.scanAll(context)) null
+                            else ProxySourceSettings.scanLimit(context)
+                        val socksBatch = if (socks5Enabled) {
+                            withContext(Dispatchers.IO) {
+                                val store = ProxySqliteStore.instance(context)
+                                val info = store.inventory()["hookzof-socks5"]
+                                if (info == null || System.currentTimeMillis() - info.fetchedAt > 30L * 60_000L) {
+                                    // The feed can change between runs; preserve previous inventory on failure.
+                                    ProxySourceInventory(context).refresh()
+                                }
+                                val available = store.inventory()["hookzof-socks5"]?.count ?: 0
+                                if (available == 0) {
+                                    ScanSession.setError("Список SOCKS5 недоступен. Другие источники продолжат проверку.")
+                                }
+                                val batchSize = fullLimit?.coerceAtMost(available) ?: available
+                                store.nextSocksCandidates("hookzof-socks5", batchSize)
+                            }
+                        } else emptyList()
                         ScanSession.repository.loadAndCheckProxies(
                             cachedProxies = ScanSession.state.value.proxies,
                             force = intent.getBooleanExtra("force", false),
                             tcpOkOnly = intent.getBooleanExtra("tcp_ok_only", false),
+                            mtprotoEnabled = mtprotoEnabled,
+                            socksProxies = socksBatch,
+                            scanLimit = fullLimit,
                             onUpdate = {
                                 ScanSession.updateProxies(it)
                                 scheduleSave()

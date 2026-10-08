@@ -25,6 +25,10 @@ class ProxyViewModel(application: Application) : AndroidViewModel(application) {
         private set
     var socks5SourceEnabled by mutableStateOf(ProxySourceSettings.socks5Enabled(application))
         private set
+    var scanLimit by mutableStateOf(ProxySourceSettings.scanLimit(application))
+        private set
+    var scanAll by mutableStateOf(ProxySourceSettings.scanAll(application))
+        private set
     internal var inventoryCounts by mutableStateOf<Map<String, SourceInventoryCount>>(emptyMap())
         private set
     var inventoryErrors by mutableStateOf<Map<String, String>>(emptyMap())
@@ -66,16 +70,23 @@ class ProxyViewModel(application: Application) : AndroidViewModel(application) {
             // Results (including failures) have already been written to the persistent cache.
             val now = System.currentTimeMillis()
             val hasRecentChecks = ScanSession.state.value.proxies.any { proxy ->
-                proxy.checkedAt?.let { now - it in 0 until 30L * 60L * 1000L } == true
+                val sourceIsEnabled = when (proxy.protocol) {
+                    ProxySourceProtocol.MTPROTO -> mtprotoSourceEnabled
+                    ProxySourceProtocol.SOCKS5 -> socks5SourceEnabled
+                    else -> false
+                }
+                sourceIsEnabled &&
+                    (proxy.checkedAt?.let { now - it in 0 until 30L * 60L * 1000L } == true)
             }
-            if (!ScanSession.state.value.running && mtprotoSourceEnabled && !hasRecentChecks) refresh()
+            if (!ScanSession.state.value.running &&
+                (mtprotoSourceEnabled || socks5SourceEnabled) && !hasRecentChecks) refresh()
         }
     }
 
     fun refresh(force: Boolean = false, tcpOkOnly: Boolean = false) {
         if (ScanSession.state.value.running || checkingProxyKeys.isNotEmpty()) return
-        if (!mtprotoSourceEnabled) {
-            ScanSession.setError("Источник MTProto выключен в настройках")
+        if (!mtprotoSourceEnabled && !socks5SourceEnabled) {
+            ScanSession.setError("Включи хотя бы один источник в настройках")
             return
         }
         ScanSession.start()
@@ -91,6 +102,18 @@ class ProxyViewModel(application: Application) : AndroidViewModel(application) {
         if (ScanSession.state.value.running || checkingProxyKeys.isNotEmpty()) return
         ProxySourceSettings.setMtprotoEnabled(getApplication(), enabled)
         mtprotoSourceEnabled = enabled
+    }
+
+    fun updateScanLimit(value: Int) {
+        if (isLoading) return
+        scanLimit = value.coerceAtLeast(1)
+        ProxySourceSettings.setScanLimit(getApplication(), scanLimit)
+    }
+
+    fun updateScanAll(value: Boolean) {
+        if (isLoading) return
+        scanAll = value
+        ProxySourceSettings.setScanAll(getApplication(), value)
     }
 
     fun updateSocks5SourceEnabled(enabled: Boolean) {

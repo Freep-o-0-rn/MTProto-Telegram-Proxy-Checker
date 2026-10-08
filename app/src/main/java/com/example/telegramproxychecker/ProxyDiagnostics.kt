@@ -5,7 +5,7 @@ internal data class ProxyFailureCount(val reason: String, val count: Int)
 
 internal fun topProxyFailures(proxies: List<MtProxy>, limit: Int = 3): List<ProxyFailureCount> =
     proxies.asSequence()
-        .filter { it.telegramOk == false && it.telegramError != "TCP недоступен" }
+        .filter { it.telegramOk == false && it.telegramError != "TCP недоступен" && it.telegramError?.startsWith("SOCKS5:") != true }
         .groupingBy { it.telegramError?.ifBlank { "Причина не указана" } ?: "Причина не указана" }
         .eachCount()
         .entries
@@ -21,12 +21,12 @@ internal fun buildProxyDiagnostics(proxies: List<MtProxy>, checked: Int, total: 
         appendLine("TCP OK: ${proxies.count { it.tcpOk == true }}")
         appendLine("TCP FAIL: ${proxies.count { it.tcpOk == false }}")
         appendLine("Telegram OK: ${proxies.count { it.telegramOk == true }}")
-        appendLine("Telegram FAIL (TDLib): ${proxies.count { it.telegramOk == false && it.telegramError != "TCP недоступен" }}")
+        appendLine("Telegram FAIL (TDLib): ${proxies.count { it.telegramOk == false && it.telegramError != "TCP недоступен" && it.telegramError?.startsWith("SOCKS5:") != true }}")
         appendLine("Not tested: ${proxies.count { it.telegramOk == null }}")
         appendLine()
         for (p in proxies) {
             // Never copy MTProto secrets, original deep links, or cache keys.
-            append(p.server).append(':').append(p.port)
+            append(p.protocol.label).append(' ').append(p.server).append(':').append(p.port)
             append(" | TCP=").append(p.tcpOk ?: "?")
             append(" | Telegram=").append(p.telegramOk ?: "?")
             append(" | latencyMs=").append(p.telegramPingMs ?: "-")

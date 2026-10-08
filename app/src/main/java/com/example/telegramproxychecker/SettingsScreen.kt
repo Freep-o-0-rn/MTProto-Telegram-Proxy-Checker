@@ -19,6 +19,8 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -32,6 +34,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlin.math.roundToInt
 
 private val top = Color(0xFF07111F)
 private val bottom = Color(0xFF0B2742)
@@ -51,6 +54,10 @@ internal fun SettingsScreen(
     inventoryCounts: Map<String, SourceInventoryCount>,
     inventoryErrors: Map<String, String>,
     inventoryRefreshing: Boolean,
+    scanLimit: Int,
+    scanAll: Boolean,
+    onScanLimitChange: (Int) -> Unit,
+    onScanAllChange: (Boolean) -> Unit,
     onRefreshInventory: () -> Unit,
     onMtprotoEnabledChange: (Boolean) -> Unit,
     onSocks5EnabledChange: (Boolean) -> Unit
@@ -102,8 +109,8 @@ internal fun SettingsScreen(
                         checked = enabled,
                         enabled = sourceSwitchEnabled,
                         status = when {
-                            !isMtproto && enabled -> "Выбран · проверка позже"
-                            !isMtproto -> "Проверка позже"
+                            !isMtproto && enabled -> "Включён"
+                            !isMtproto -> "Выключен"
                             enabled -> "Включён"
                             else -> "Выключен"
                         },
@@ -123,6 +130,47 @@ internal fun SettingsScreen(
                         color = white, fontWeight = FontWeight.SemiBold, fontSize = 16.sp
                     )
                 }
+                Card(
+                    shape = RoundedCornerShape(14.dp),
+                    colors = CardDefaults.cardColors(containerColor = panel),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        val maximum = selectedTotal.coerceAtLeast(1)
+                        val selectedLimit = scanLimit.coerceIn(1, maximum)
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("Лимит проверки", color = white, fontSize = 14.sp,
+                                modifier = Modifier.weight(1f))
+                            Text(if (scanAll && allLoaded) "Все: $selectedTotal" else "$selectedLimit",
+                                color = blue, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                        }
+                        Slider(
+                            value = selectedLimit.toFloat(),
+                            onValueChange = { onScanLimitChange(it.roundToInt()) },
+                            valueRange = 1f..maximum.toFloat(),
+                            enabled = sourceSwitchEnabled && !scanAll && allLoaded &&
+                                selectedTotal > 1,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("1", color = gray, fontSize = 12.sp, modifier = Modifier.weight(1f))
+                            Text(if (allLoaded) "$selectedTotal" else "Загрузка…",
+                                color = gray, fontSize = 12.sp)
+                        }
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("Без ограничения · Все", color = white, fontSize = 13.sp,
+                                modifier = Modifier.weight(1f))
+                            Checkbox(
+                                checked = scanAll,
+                                onCheckedChange = onScanAllChange,
+                                enabled = sourceSwitchEnabled
+                            )
+                        }
+                    }
+                }
                 if (inventoryErrors.isNotEmpty()) {
                     Text(
                         "Не удалось обновить часть списков. Показаны последние сохранённые значения.",
@@ -132,10 +180,8 @@ internal fun SettingsScreen(
                 if (!sourceSwitchEnabled) {
                     Text("Останови сканирование, чтобы изменить источники", color = gray, fontSize = 12.sp)
                 }
-                Text(
-                    "SOCKS5 пока только загружается в каталог. Проверку Telegram добавим отдельным обновлением.",
-                    color = gray, fontSize = 12.sp
-                )
+                Text("SOCKS5 проверяется через handshake и Telegram TDLib. " +
+                    "Параллельность пока 6 проверок.", color = gray, fontSize = 12.sp)
             }
         }
     }
@@ -166,7 +212,7 @@ private fun SourceToggleRow(
             ) {
                 Text(source.name, color = white, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
                 Text(source.protocol.label + " · " + status,
-                    color = if (checked && source.protocol == ProxySourceProtocol.MTPROTO) green else gray,
+                    color = if (checked) green else gray,
                     fontSize = 12.sp)
                 Text(source.repository, color = gray, fontSize = 11.sp,
                     maxLines = 1, overflow = TextOverflow.Ellipsis)

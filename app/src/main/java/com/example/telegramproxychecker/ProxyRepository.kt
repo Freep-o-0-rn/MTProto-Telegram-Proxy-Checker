@@ -22,7 +22,8 @@ class ProxyRepository internal constructor(
     private val sourceLoader: suspend () -> List<MtProxy>,
     private val tcpCheck: suspend (MtProxy) -> MtProxy,
     private val telegramCheck: suspend (MtProxy) -> MtProxy,
-    private val nowMillis: () -> Long = System::currentTimeMillis
+    private val nowMillis: () -> Long = System::currentTimeMillis,
+    private val socksCheck: suspend (MtProxy) -> MtProxy = { checkSocks5Handshake(it) }
 ) {
     constructor() : this(
         sourceLoader = ::downloadProxies,
@@ -45,11 +46,14 @@ class ProxyRepository internal constructor(
         onUpdate: (List<MtProxy>) -> Unit = {},
         beforeCheck: suspend () -> Unit = {},
         tcpOkOnly: Boolean = false,
+        mtprotoEnabled: Boolean = true,
+        socksProxies: List<MtProxy> = emptyList(),
+        scanLimit: Int? = null,
         onProgress: (checked: Int, total: Int) -> Unit = { _, _ -> }
     ): List<MtProxy> {
         val sourceProxies = try {
-            val githubProxies = loadProxies()
-            mergeGithubWithCache(githubProxies, cachedProxies)
+            val githubProxies = if (mtprotoEnabled) loadProxies() else emptyList()
+            mergeGithubWithCache(githubProxies + socksProxies, cachedProxies)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -60,7 +64,20 @@ class ProxyRepository internal constructor(
             }
         }
 
-        val queue = buildCheckQueue(sourceProxies, force, tcpOkOnly)
+        // Previously checked SOCKS5 entries remain visible in the result list,
+        // but only the selected rotating batch may enter a full scan.
+        val selectedSocksKeys = socksProxies.mapTo(HashSet()) { it.cacheKey }
+        val eligible = sourceProxies.filter {
+            when (it.protocol) {
+                ProxySourceProtocol.MTPROTO -> mtprotoEnabled
+                ProxySourceProtocol.SOCKS5 -> if (tcpOkOnly) selectedSocksKeys.contains(it.cacheKey) ||
+                    it.tcpOk == true else it.cacheKey in selectedSocksKeys
+                else -> false
+            }
+        }
+        val candidateQueue = buildCheckQueue(eligible, force, tcpOkOnly)
+        val queue = if (scanLimit == null) candidateQueue else
+            interleaveSourceQueues(candidateQueue).take(scanLimit.coerceAtLeast(1))
 
         onProgress(0, queue.size)
         onUpdate(sortProxies(sourceProxies))
@@ -115,9 +132,14 @@ class ProxyRepository internal constructor(
         proxy: MtProxy,
         verifyDespiteTcpFailure: Boolean = false
     ): MtProxy = checkSlots.withPermit {
-        val tcpChecked = tcpCheck(proxy)
+        val tcpChecked = when (proxy.protocol) {
+            ProxySourceProtocol.MTPROTO -> tcpCheck(proxy)
+            ProxySourceProtocol.SOCKS5 -> socksCheck(proxy)
+            else -> error("Unsupported proxy type: ${proxy.protocol}")
+        }
 
-        val telegramChecked = if (tcpChecked.tcpOk == true || verifyDespiteTcpFailure) {
+        val telegramChecked = if (tcpChecked.tcpOk == true ||
+            (verifyDespiteTcpFailure && proxy.protocol == ProxySourceProtocol.MTPROTO)) {
             telegramCheck(tcpChecked)
         } else {
             tcpChecked
@@ -155,12 +177,11 @@ class ProxyRepository internal constructor(
 
         val githubKeys = githubProxies.map { it.cacheKey }.toSet()
 
-        val oldFavorites = cachedProxies
-            .filter { it.isFavorite }
-            .filter { it.cacheKey !in githubKeys }
-
-        return (mergedFromGithub + oldFavorites)
-            .distinctBy { it.cacheKey }
+        val retained = cachedProxies.filter {
+            it.cacheKey !in githubKeys &&
+                (it.isFavorite || it.protocol == ProxySourceProtocol.SOCKS5)
+        }
+        return (mergedFromGithub + retained).distinctBy { it.cacheKey }
     }
 
     private fun buildCheckQueue(
@@ -203,6 +224,30 @@ class ProxyRepository internal constructor(
 
         return (oldTelegramOk + newProxies + unknown + oldTelegramFail)
             .distinctBy { it.cacheKey }
+    }
+
+    /**
+     * Interleave source queues when limiting work; a constantly refreshed MTProto
+     * list must not permanently starve tens of thousands of SOCKS5 addresses.
+     */
+    private fun interleaveSourceQueues(queue: List<MtProxy>): List<MtProxy> {
+        val mt = ArrayDeque(queue.filter { it.protocol == ProxySourceProtocol.MTPROTO })
+        val socks = ArrayDeque(queue.filter { it.protocol == ProxySourceProtocol.SOCKS5 })
+        if (mt.isEmpty() || socks.isEmpty()) return queue
+        val merged = ArrayList<MtProxy>(queue.size)
+        // Give the protocol with older checks the first turn.
+        val socksFirst = (socks.firstOrNull()?.checkedAt ?: Long.MIN_VALUE) <
+            (mt.firstOrNull()?.checkedAt ?: Long.MIN_VALUE)
+        while (mt.isNotEmpty() || socks.isNotEmpty()) {
+            if (socksFirst) {
+                if (socks.isNotEmpty()) merged += socks.removeFirst()
+                if (mt.isNotEmpty()) merged += mt.removeFirst()
+            } else {
+                if (mt.isNotEmpty()) merged += mt.removeFirst()
+                if (socks.isNotEmpty()) merged += socks.removeFirst()
+            }
+        }
+        return merged
     }
 
     fun sortProxies(proxies: List<MtProxy>): List<MtProxy> {
