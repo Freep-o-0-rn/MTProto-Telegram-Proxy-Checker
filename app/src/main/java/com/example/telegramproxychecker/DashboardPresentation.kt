@@ -27,6 +27,13 @@ internal fun dashboardProxies(
                 compareBy<MtProxy> { it.tcpPingMs ?: Long.MAX_VALUE }
                     .thenBy { it.server.lowercase() }
                     .thenBy { it.port }
+            } else if (tab == ProxyTab.WORKING) {
+                // Unstable Telegram OK remains visible, but follows confirmed
+                // TCP OK + Telegram OK connections for easier selection.
+                compareBy<MtProxy> { it.isUnstableTelegramOk }
+                    .thenBy { it.telegramPingMs ?: Long.MAX_VALUE }
+                    .thenBy { it.server.lowercase() }
+                    .thenBy { it.port }
             } else {
                 compareBy<MtProxy> { when (it.telegramOk) { true -> 0; null -> 1; false -> 2 } }
                     .thenBy { it.telegramPingMs ?: Long.MAX_VALUE }
