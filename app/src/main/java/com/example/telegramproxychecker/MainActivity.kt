@@ -13,6 +13,7 @@ import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -34,6 +35,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -41,6 +43,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -50,6 +53,10 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
@@ -57,8 +64,11 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.ViewModelProvider
 
 private val BgTop = Color(0xFF07111F)
@@ -151,6 +161,15 @@ fun openTelegramProxy(context: Context, proxy: MtProxy) {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ProxyApp(viewModel: ProxyViewModel) {
+    // Keep the active scan in ScanSession; this is navigation state only.
+    var showSettings by rememberSaveable { mutableStateOf(false) }
+    val proxyListState = rememberLazyListState()
+    BackHandler(enabled = showSettings) { showSettings = false }
+    if (showSettings) {
+        SettingsScreen(onBack = { showSettings = false })
+        return
+    }
+
     val context = LocalContext.current
     val configuration = LocalConfiguration.current
 
@@ -209,6 +228,14 @@ fun ProxyApp(viewModel: ProxyViewModel) {
                         )
                     }
                 },
+                actions = {
+                    IconButton(
+                        onClick = { showSettings = true },
+                        modifier = Modifier.semantics { contentDescription = "Открыть настройки" }
+                    ) {
+                        Text("⚙", color = TextMain, fontSize = 24.sp)
+                    }
+                },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = Color(0xFF07111F),
                     titleContentColor = TextMain
@@ -228,6 +255,7 @@ fun ProxyApp(viewModel: ProxyViewModel) {
                 )
         ) {
             LazyColumn(
+                state = proxyListState,
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(pagePadding),
                 verticalArrangement = Arrangement.spacedBy(itemSpacing)
