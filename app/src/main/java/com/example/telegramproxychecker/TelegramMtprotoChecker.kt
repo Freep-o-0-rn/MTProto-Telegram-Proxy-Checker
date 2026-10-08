@@ -33,14 +33,8 @@ class TelegramMtprotoChecker internal constructor(
     private val dcIds = listOf(1, 2, 3, 4, 5)
 
     suspend fun check(proxy: MtProxy): MtProxy {
-        if (proxy.tcpOk != true) {
-            return proxy.copy(
-                telegramOk = false,
-                telegramPingMs = null,
-                telegramError = "TCP недоступен"
-            )
-        }
-
+        // TDLib may use a different network resolution/connection path than java.net.Socket.
+        // The caller decides whether to perform this expensive check after TCP FAIL.
         val result = try {
             withContext(dispatcher) { testProxy(proxy) }
         } catch (e: LinkageError) {

@@ -5,7 +5,7 @@ internal data class ProxyFailureCount(val reason: String, val count: Int)
 
 internal fun topProxyFailures(proxies: List<MtProxy>, limit: Int = 3): List<ProxyFailureCount> =
     proxies.asSequence()
-        .filter { it.tcpOk == true && it.telegramOk == false }
+        .filter { it.telegramOk == false && it.telegramError != "TCP недоступен" }
         .groupingBy { it.telegramError?.ifBlank { "Причина не указана" } ?: "Причина не указана" }
         .eachCount()
         .entries
@@ -21,7 +21,7 @@ internal fun buildProxyDiagnostics(proxies: List<MtProxy>, checked: Int, total: 
         appendLine("TCP OK: ${proxies.count { it.tcpOk == true }}")
         appendLine("TCP FAIL: ${proxies.count { it.tcpOk == false }}")
         appendLine("Telegram OK: ${proxies.count { it.telegramOk == true }}")
-        appendLine("Telegram FAIL after TCP OK: ${proxies.count { it.tcpOk == true && it.telegramOk == false }}")
+        appendLine("Telegram FAIL (TDLib): ${proxies.count { it.telegramOk == false && it.telegramError != "TCP недоступен" }}")
         appendLine("Not tested: ${proxies.count { it.telegramOk == null }}")
         appendLine()
         for (p in proxies) {

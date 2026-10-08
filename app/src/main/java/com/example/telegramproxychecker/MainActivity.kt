@@ -178,7 +178,7 @@ fun ProxyApp(viewModel: ProxyViewModel) {
 
     val telegramOkCount = remember(proxies) { proxies.count { it.telegramOk == true } }
     val telegramFailCount = remember(proxies) {
-        proxies.count { it.telegramOk == false && it.tcpOk == true }
+        proxies.count { it.telegramOk == false && it.telegramError != "TCP недоступен" }
     }
     val favoriteCount = remember(proxies) { proxies.count { it.isFavorite } }
     val telegramFailures = remember(proxies) { topProxyFailures(proxies) }
@@ -269,7 +269,7 @@ fun ProxyApp(viewModel: ProxyViewModel) {
                                 contentColor = TextMain
                             )
                         ) {
-                            Text("Полная перепроверка (${proxies.size})")
+                            Text("Полная Telegram-проверка (${proxies.size})")
                         }
                     }
                 }
@@ -595,7 +595,7 @@ fun ProxyItem(
 
             Button(
                 onClick = onConnectClick,
-                enabled = proxy.tcpOk == true,
+                enabled = proxy.telegramOk == true || proxy.tcpOk == true,
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(14.dp),
                 colors = ButtonDefaults.buttonColors(

@@ -204,14 +204,19 @@ class ProxyRepositoryTest {
             testProxy(it).copy(checkedAt = 5L, telegramOk = false)
         }
         val requested = mutableListOf<String>()
+        val deepChecks = mutableListOf<String>()
         val repository = ProxyRepository(
             sourceLoader = { stale },
             tcpCheck = { requested += it.cacheKey; it.copy(tcpOk = false) },
-            telegramCheck = { error("TCP is unavailable") },
+            telegramCheck = {
+                deepChecks += it.cacheKey
+                it.copy(telegramOk = false, telegramError = "TDLib timeout")
+            },
             nowMillis = { 3_600_000L }
         )
         val refreshed = repository.loadAndCheckProxies(stale, force = true)
         assertEquals(50, requested.distinct().size)
+        assertEquals(50, deepChecks.distinct().size)
         assertEquals(50, refreshed.size)
     }
 

@@ -37,7 +37,7 @@ class ProxyRepository internal constructor(
     suspend fun loadProxies(): List<MtProxy> = sourceLoader()
 
     suspend fun recheckOneProxy(proxy: MtProxy): MtProxy {
-        return checkSingleProxy(proxy)
+        return checkSingleProxy(proxy, verifyDespiteTcpFailure = true)
     }
 
     suspend fun loadAndCheckProxies(
@@ -81,7 +81,7 @@ class ProxyRepository internal constructor(
                 launch {
                     for (proxy in pending) {
                         beforeCheck()
-                        completed.send(checkSingleProxy(proxy))
+                        completed.send(checkSingleProxy(proxy, verifyDespiteTcpFailure = force))
                     }
                 }
             }
@@ -111,10 +111,13 @@ class ProxyRepository internal constructor(
         }
     }
 
-    private suspend fun checkSingleProxy(proxy: MtProxy): MtProxy = checkSlots.withPermit {
+    private suspend fun checkSingleProxy(
+        proxy: MtProxy,
+        verifyDespiteTcpFailure: Boolean = false
+    ): MtProxy = checkSlots.withPermit {
         val tcpChecked = tcpCheck(proxy)
 
-        val telegramChecked = if (tcpChecked.tcpOk == true) {
+        val telegramChecked = if (tcpChecked.tcpOk == true || verifyDespiteTcpFailure) {
             telegramCheck(tcpChecked)
         } else {
             tcpChecked
