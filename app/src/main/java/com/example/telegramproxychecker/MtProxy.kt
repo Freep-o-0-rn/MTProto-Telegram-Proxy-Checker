@@ -32,6 +32,13 @@ data class MtProxy(
         }
 }
 
+
+// A successful TDLib TestProxy can coexist with a failed standalone TCP
+// precheck. Keep the proxy in Telegram OK, but flag the discrepancy in UI.
+// Derived from persisted fields; no database migration or extra state needed.
+internal val MtProxy.isUnstableTelegramOk: Boolean
+    get() = telegramOk == true && tcpOk == false
+
 internal fun List<MtProxy>.withFavoritesFrom(current: List<MtProxy>): List<MtProxy> {
     val favorites = current.associate { it.cacheKey to it.isFavorite }
     return map { proxy ->
