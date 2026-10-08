@@ -70,12 +70,7 @@ class MainActivity : ComponentActivity() {
 }
 
 fun openTelegramProxy(context: Context, proxy: MtProxy) {
-    val telegramUri = Uri.parse(
-        "tg://proxy" +
-                "?server=${Uri.encode(proxy.server)}" +
-                "&port=${proxy.port}" +
-                "&secret=${Uri.encode(proxy.secret)}"
-    )
+    val telegramUri = Uri.parse(telegramDeepLink(proxy))
 
     val webUri = Uri.parse(proxy.originalUrl)
 
@@ -139,8 +134,8 @@ fun ProxyApp(viewModel: ProxyViewModel) {
     if (showSettings) {
         SettingsScreen(
             onBack = { showSettings = false },
-            mtprotoEnabled = viewModel.mtprotoSourceEnabled,
-            socks5Enabled = viewModel.socks5SourceEnabled,
+            enabledSourceIds = viewModel.enabledSourceIds,
+            selectedUniqueCount = viewModel.selectedUniqueCount,
             sourceSwitchEnabled = !viewModel.isLoading && viewModel.checkingProxyKeys.isEmpty(),
             inventoryCounts = viewModel.inventoryCounts,
             inventoryErrors = viewModel.inventoryErrors,
@@ -155,8 +150,7 @@ fun ProxyApp(viewModel: ProxyViewModel) {
             onScanLimitChange = viewModel::updateScanLimit,
             onScanAllChange = viewModel::updateScanAll,
             onRefreshInventory = viewModel::refreshSourceInventory,
-            onMtprotoEnabledChange = viewModel::updateMtprotoSourceEnabled,
-            onSocks5EnabledChange = viewModel::updateSocks5SourceEnabled
+            onSourceEnabledChange = viewModel::updateSourceEnabled
         )
     } else {
         ProxyDashboardScreen(

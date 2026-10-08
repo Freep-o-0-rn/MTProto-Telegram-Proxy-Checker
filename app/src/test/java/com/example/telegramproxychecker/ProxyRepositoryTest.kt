@@ -49,7 +49,7 @@ class ProxyRepositoryTest {
         assertTrue(snapshots.any { list -> list.any { it.telegramOk == true } })
         val result = scan.await()
 
-        assertEquals(6, peak)
+        assertEquals(5, peak)
         assertEquals(0, active)
         assertEquals(20, result.size)
         assertTrue(result.all { it.telegramOk == true })
@@ -162,6 +162,32 @@ class ProxyRepositoryTest {
         scan.cancelAndJoin()
         assertEquals(0, active)
         assertEquals(true, repository.recheckOneProxy(testProxy()).telegramOk)
+    }
+
+    @Test
+    fun selectedMtprotoFeedsMergeDuplicatesAndReuseCachedVerification() = runTest {
+        val shared = testProxy(1)
+        val other = testProxy(2)
+        val cached = shared.copy(telegramOk = true, tcpOk = true,
+            telegramPingMs = 120L, checkedAt = 3_599_000L, isFavorite = true)
+        var checked = 0
+        val repo = ProxyRepository(
+            sourceLoader = { error("Legacy loader must not run with selected inventories") },
+            tcpCheck = { checked++; it.copy(tcpOk = false, telegramOk = false) },
+            telegramCheck = { error("Unexpected TDLib check") },
+            nowMillis = { 3_600_000L }
+        )
+        val output = repo.loadAndCheckProxies(
+            cachedProxies = listOf(cached),
+            mtprotoProxies = listOf(shared.copy(sourceId = "solispirit-mtproto"),
+                shared.copy(sourceId = "tgmtproxy-mtproto"),
+                other.copy(sourceId = "shablin-mtproto"))
+        )
+        assertEquals(2, output.size)
+        assertEquals(1, checked)
+        assertEquals(cached, output.first())
+        assertEquals(1, output.count { it.cacheKey == shared.cacheKey })
+        assertEquals("shablin-mtproto", output.single { it.server == other.server }.sourceId)
     }
 
     @Test

@@ -52,6 +52,9 @@ class ProxyRepository internal constructor(
         tcpOkOnly: Boolean = false,
         mtprotoEnabled: Boolean = true,
         socksProxies: List<MtProxy> = emptyList(),
+        // null preserves the legacy/test loader; an explicit list is the
+        // deduplicated selection from per-source SQLite inventory.
+        mtprotoProxies: List<MtProxy>? = null,
         scanLimit: Int? = null,
         parallelChecks: Int = ScanConcurrencyPolicy.DEFAULT_WORKERS,
         onProgress: (checked: Int, total: Int) -> Unit = { _, _ -> }
@@ -61,8 +64,8 @@ class ProxyRepository internal constructor(
         val workerCount = ScanConcurrencyPolicy.clamp(parallelChecks)
         configureParallelChecks(workerCount)
         val sourceProxies = try {
-            val githubProxies = if (mtprotoEnabled) loadProxies() else emptyList()
-            mergeGithubWithCache(githubProxies + socksProxies, cachedProxies)
+            val githubProxies = if (mtprotoEnabled) (mtprotoProxies ?: loadProxies()) else emptyList()
+            mergeGithubWithCache((githubProxies + socksProxies).distinctBy { it.cacheKey }, cachedProxies)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {

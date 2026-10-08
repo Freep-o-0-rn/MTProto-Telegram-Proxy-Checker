@@ -10,7 +10,7 @@ import android.content.Context
 internal object ScanConcurrencyPolicy {
     const val MIN_WORKERS = 1
     const val MAX_WORKERS = 30
-    const val DEFAULT_WORKERS = 6
+    const val DEFAULT_WORKERS = 5
     const val MAX_TDLIB_CHECKS = 6
 
     fun clamp(value: Int): Int = value.coerceIn(MIN_WORKERS, MAX_WORKERS)

@@ -7,16 +7,23 @@ import org.junit.Test
 
 class ProxySourceCatalogueTest {
     @Test
-    fun bothProtocolFeedsAreActive() {
+    fun mtprotoFeedsFirstAndSocks5Last() {
         val sources = ProxySourceCatalogue.entries
-        assertEquals(2, sources.size)
+        assertEquals(5, sources.size)
         assertEquals(sources.size, sources.map { it.id }.distinct().size)
         val active = sources.filter { it.status == ProxySourceStatus.ACTIVE }
-        assertEquals(2, active.size)
+        assertEquals(5, active.size)
         assertTrue(active.any { it.protocol == ProxySourceProtocol.MTPROTO })
         assertEquals(
+            listOf("solispirit-mtproto", "tgmtproxy-mtproto", "shablin-mtproto",
+                "dubblebyte-mtproto", "hookzof-socks5"),
+            active.map { it.id }
+        )
+        assertTrue(active.dropLast(1).all { it.protocol == ProxySourceProtocol.MTPROTO })
+        assertEquals(ProxySourceProtocol.SOCKS5, active.last().protocol)
+        assertEquals(
             "https://raw.githubusercontent.com/SoliSpirit/mtproto/master/all_proxies.txt",
-            active.single { it.protocol == ProxySourceProtocol.MTPROTO }.sourceUrl
+            active.first().sourceUrl
         )
     }
 
