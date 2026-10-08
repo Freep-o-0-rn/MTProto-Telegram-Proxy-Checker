@@ -13,7 +13,7 @@ class ProxyDiagnosticsTest {
             testProxy(2).copy(telegramOk = false, telegramError = "TDLib 400: invalid secret"),
             testProxy(3).copy(telegramOk = false, telegramError = "TDLib 500: timeout"),
             testProxy(4).copy(tcpOk = false, telegramOk = false, telegramError = "TCP недоступен"),
-            testProxy(6).copy(tcpOk = false, telegramOk = false, telegramError = "TDLib 500: timeout"),
+            testProxy(6).copy(tcpOk = false, telegramOk = false, telegramError = "TDLib 502: connect failed"),
             testProxy(5).copy(telegramOk = true, telegramError = null)
         )
         val top = topProxyFailures(proxies)
