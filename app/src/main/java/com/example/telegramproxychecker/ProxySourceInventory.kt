@@ -22,11 +22,15 @@ internal class ProxySourceInventory(context: Context) {
     suspend fun cached(): Map<String, SourceInventoryCount> =
         withContext(Dispatchers.IO) { store.inventory() }
 
-    suspend fun refresh(): SourceRefreshResult = withContext(Dispatchers.IO) {
+    suspend fun uniqueSelectedCount(sourceIds: Set<String>): Int =
+        withContext(Dispatchers.IO) { store.uniqueInventoryCount(sourceIds) }
+
+    suspend fun refresh(sourceIds: Set<String> = ProxySourceCatalogue.entries.map { it.id }.toSet()): SourceRefreshResult = withContext(Dispatchers.IO) {
         val errors = mutableMapOf<String, String>()
-        for (source in ProxySourceCatalogue.entries) {
+        for (source in ProxySourceCatalogue.entries.filter { it.id in sourceIds }) {
             try {
                 val loaded = download(source)
+                if (loaded.isEmpty()) error("В источнике нет корректных прокси")
                 // A complete download replaces this source's inventory atomically.
                 store.replaceSourceInventory(source.id, loaded, System.currentTimeMillis())
             } catch (e: CancellationException) {

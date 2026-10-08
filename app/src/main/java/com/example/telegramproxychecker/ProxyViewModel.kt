@@ -21,9 +21,15 @@ class ProxyViewModel(application: Application) : AndroidViewModel(application) {
     var error by mutableStateOf(ScanSession.state.value.error)
         private set
 
-    var mtprotoSourceEnabled by mutableStateOf(ProxySourceSettings.mtprotoEnabled(application))
+    var enabledSourceIds by mutableStateOf(ProxySourceSettings.enabledSourceIds(application))
         private set
-    var socks5SourceEnabled by mutableStateOf(ProxySourceSettings.socks5Enabled(application))
+    val mtprotoSourceEnabled: Boolean
+        get() = ProxySourceCatalogue.entries.any {
+            it.protocol == ProxySourceProtocol.MTPROTO && it.id in enabledSourceIds
+        }
+    val socks5SourceEnabled: Boolean
+        get() = "hookzof-socks5" in enabledSourceIds
+    var selectedUniqueCount by mutableStateOf<Int?>(null)
         private set
     var scanLimit by mutableStateOf(ProxySourceSettings.scanLimit(application))
         private set
@@ -106,10 +112,26 @@ class ProxyViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun updateMtprotoSourceEnabled(enabled: Boolean) {
+    fun updateSourceEnabled(sourceId: String, enabled: Boolean) {
         if (ScanSession.state.value.running || checkingProxyKeys.isNotEmpty()) return
-        ProxySourceSettings.setMtprotoEnabled(getApplication(), enabled)
-        mtprotoSourceEnabled = enabled
+        ProxySourceSettings.setSourceEnabled(getApplication(), sourceId, enabled)
+        enabledSourceIds = ProxySourceSettings.enabledSourceIds(getApplication())
+        refreshUniqueSelectedCount()
+    }
+
+    private fun refreshUniqueSelectedCount() {
+        val ids = enabledSourceIds
+        selectedUniqueCount = null
+        viewModelScope.launch {
+            try {
+                val count = inventoryRepository.uniqueSelectedCount(ids)
+                if (ids == enabledSourceIds) selectedUniqueCount = count
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                // Inventory counts remain visible even if SQLite is unavailable.
+            }
+        }
     }
 
     fun updateScanLimit(value: Int) {
@@ -141,22 +163,17 @@ class ProxyViewModel(application: Application) : AndroidViewModel(application) {
         )
     }
 
-    fun updateSocks5SourceEnabled(enabled: Boolean) {
-        if (ScanSession.state.value.running || checkingProxyKeys.isNotEmpty()) return
-        // Selection applies to the next shared MTProto/SOCKS5 scan.
-        ProxySourceSettings.setSocks5Enabled(getApplication(), enabled)
-        socks5SourceEnabled = enabled
-    }
-
     fun refreshSourceInventory() {
         if (inventoryRefreshing) return
         inventoryRefreshing = true
         viewModelScope.launch {
             try {
                 inventoryCounts = inventoryRepository.cached()
+                refreshUniqueSelectedCount()
                 val result = inventoryRepository.refresh()
                 inventoryCounts = result.counts
                 inventoryErrors = result.errors
+                refreshUniqueSelectedCount()
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {

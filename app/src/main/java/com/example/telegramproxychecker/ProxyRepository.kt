@@ -52,6 +52,9 @@ class ProxyRepository internal constructor(
         tcpOkOnly: Boolean = false,
         mtprotoEnabled: Boolean = true,
         socksProxies: List<MtProxy> = emptyList(),
+        // null preserves the legacy/test loader; an explicit list is the
+        // deduplicated selection from per-source SQLite inventory.
+        mtprotoProxies: List<MtProxy>? = null,
         scanLimit: Int? = null,
         parallelChecks: Int = ScanConcurrencyPolicy.DEFAULT_WORKERS,
         onProgress: (checked: Int, total: Int) -> Unit = { _, _ -> }
@@ -61,8 +64,8 @@ class ProxyRepository internal constructor(
         val workerCount = ScanConcurrencyPolicy.clamp(parallelChecks)
         configureParallelChecks(workerCount)
         val sourceProxies = try {
-            val githubProxies = if (mtprotoEnabled) loadProxies() else emptyList()
-            mergeGithubWithCache(githubProxies + socksProxies, cachedProxies)
+            val githubProxies = if (mtprotoEnabled) (mtprotoProxies ?: loadProxies()) else emptyList()
+            mergeGithubWithCache((githubProxies + socksProxies).distinctBy { it.cacheKey }, cachedProxies)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -239,27 +242,26 @@ class ProxyRepository internal constructor(
     }
 
     /**
-     * Interleave source queues when limiting work; a constantly refreshed MTProto
-     * list must not permanently starve tens of thousands of SOCKS5 addresses.
+     * Fair, per-source round-robin for scans with a limited batch size.
+     * Otherwise a large enabled feed can starve smaller feeds forever,
+     * especially with the default 500-address limit and forced rescans.
+     * Duplicates are removed before this stage using protocol/server/port/secret.
      */
     private fun interleaveSourceQueues(queue: List<MtProxy>): List<MtProxy> {
-        val mt = ArrayDeque(queue.filter { it.protocol == ProxySourceProtocol.MTPROTO })
-        val socks = ArrayDeque(queue.filter { it.protocol == ProxySourceProtocol.SOCKS5 })
-        if (mt.isEmpty() || socks.isEmpty()) return queue
-        val merged = ArrayList<MtProxy>(queue.size)
-        // Give the protocol with older checks the first turn.
-        val socksFirst = (socks.firstOrNull()?.checkedAt ?: Long.MIN_VALUE) <
-            (mt.firstOrNull()?.checkedAt ?: Long.MIN_VALUE)
-        while (mt.isNotEmpty() || socks.isNotEmpty()) {
-            if (socksFirst) {
-                if (socks.isNotEmpty()) merged += socks.removeFirst()
-                if (mt.isNotEmpty()) merged += mt.removeFirst()
-            } else {
-                if (mt.isNotEmpty()) merged += mt.removeFirst()
-                if (socks.isNotEmpty()) merged += socks.removeFirst()
+        val bySource = queue.groupBy { it.sourceId }
+            .mapValues { (_, items) -> ArrayDeque(items) }
+        if (bySource.size < 2) return queue
+        val order = ProxySourceCatalogue.entries.map { it.id }.filter { it in bySource }
+        val remaining = bySource.keys.filterNot { it in order }
+        val sourceOrder = order + remaining
+        val result = ArrayList<MtProxy>(queue.size)
+        while (result.size < queue.size) {
+            for (id in sourceOrder) {
+                val source = bySource.getValue(id)
+                if (source.isNotEmpty()) result += source.removeFirst()
             }
         }
-        return merged
+        return result
     }
 
     fun sortProxies(proxies: List<MtProxy>): List<MtProxy> {

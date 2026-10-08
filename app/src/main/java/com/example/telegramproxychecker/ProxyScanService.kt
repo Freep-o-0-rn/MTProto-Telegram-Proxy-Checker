@@ -97,33 +97,52 @@ class ProxyScanService : Service() {
                     try {
                         ScanSession.loadCache(applicationContext)
                         val context = applicationContext
-                        val mtprotoEnabled = ProxySourceSettings.mtprotoEnabled(context)
-                        val socks5Enabled = ProxySourceSettings.socks5Enabled(context)
+                        // Snapshot independently selected MTProto feeds and optional SOCKS5.
+                        val selectedIds = ProxySourceSettings.enabledSourceIds(context)
+                        val enabledSources = ProxySourceCatalogue.entries.filter { it.id in selectedIds }
+                        val mtprotoIds = enabledSources.filter {
+                            it.protocol == ProxySourceProtocol.MTPROTO
+                        }.map { it.id }
+                        val socks5Enabled = "hookzof-socks5" in selectedIds
                         val fullLimit = if (ProxySourceSettings.scanAll(context)) null
                             else ProxySourceSettings.scanLimit(context)
                         // Freeze device/user-selected concurrency for the whole scan.
                         val parallelChecks = ScanConcurrencyPolicy.effective(context)
-                        val socksBatch = if (socks5Enabled) {
-                            withContext(Dispatchers.IO) {
-                                val store = ProxySqliteStore.instance(context)
-                                val info = store.inventory()["hookzof-socks5"]
-                                if (info == null || System.currentTimeMillis() - info.fetchedAt > 30L * 60_000L) {
-                                    // The feed can change between runs; preserve previous inventory on failure.
-                                    ProxySourceInventory(context).refresh()
+                        val (mtprotoBatch, socksBatch) = withContext(Dispatchers.IO) {
+                            val store = ProxySqliteStore.instance(context)
+                            val known = store.inventory()
+                            val now = System.currentTimeMillis()
+                            val staleIds = enabledSources.filter { source ->
+                                val info = known[source.id]
+                                info == null || now - info.fetchedAt > 30L * 60_000L
+                            }.map { it.id }.toSet()
+                            if (staleIds.isNotEmpty()) {
+                                // Refresh only enabled stale feeds, preserve each last-good snapshot.
+                                val refreshed = ProxySourceInventory(context).refresh(staleIds)
+                                if (refreshed.errors.isNotEmpty()) {
+                                    ScanSession.setError("Не удалось обновить часть источников. Использован кэш.")
                                 }
+                            }
+                            val mtproto = store.mtprotoFromSources(mtprotoIds)
+                            if (mtprotoIds.isNotEmpty() && mtproto.isEmpty()) {
+                                ScanSession.setError("Списки MTProto недоступны. Проверь источники в настройках.")
+                            }
+                            val socks = if (socks5Enabled) {
                                 val available = store.inventory()["hookzof-socks5"]?.count ?: 0
                                 if (available == 0) {
                                     ScanSession.setError("Список SOCKS5 недоступен. Другие источники продолжат проверку.")
                                 }
                                 val batchSize = fullLimit?.coerceAtMost(available) ?: available
                                 store.nextSocksCandidates("hookzof-socks5", batchSize)
-                            }
-                        } else emptyList()
+                            } else emptyList()
+                            mtproto to socks
+                        }
                         ScanSession.repository.loadAndCheckProxies(
                             cachedProxies = ScanSession.state.value.proxies,
                             force = intent.getBooleanExtra("force", false),
                             tcpOkOnly = intent.getBooleanExtra("tcp_ok_only", false),
-                            mtprotoEnabled = mtprotoEnabled,
+                            mtprotoEnabled = mtprotoIds.isNotEmpty(),
+                            mtprotoProxies = mtprotoBatch,
                             socksProxies = socksBatch,
                             scanLimit = fullLimit,
                             parallelChecks = parallelChecks,

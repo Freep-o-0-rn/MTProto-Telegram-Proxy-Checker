@@ -36,6 +36,30 @@ internal object ProxySourceCatalogue {
             status = ProxySourceStatus.ACTIVE
         ),
         ProxySourcePresentation(
+            id = "tgmtproxy-mtproto",
+            name = "tgmtproxy MTProto",
+            repository = "tgmtproxy/mtproxy · proxies.txt",
+            sourceUrl = "https://raw.githubusercontent.com/tgmtproxy/mtproxy/main/proxies.txt",
+            protocol = ProxySourceProtocol.MTPROTO,
+            status = ProxySourceStatus.ACTIVE
+        ),
+        ProxySourcePresentation(
+            id = "shablin-mtproto",
+            name = "shablin MTProto",
+            repository = "shablin/mtproto-proxy · data/valid_proxy.txt",
+            sourceUrl = "https://raw.githubusercontent.com/shablin/mtproto-proxy/main/data/valid_proxy.txt",
+            protocol = ProxySourceProtocol.MTPROTO,
+            status = ProxySourceStatus.ACTIVE
+        ),
+        ProxySourcePresentation(
+            id = "dubblebyte-mtproto",
+            name = "dubblebyte MTProto",
+            repository = "dubblebyte/free-mtproto-proxies · all_proxies.txt",
+            sourceUrl = "https://raw.githubusercontent.com/dubblebyte/free-mtproto-proxies/main/all_proxies.txt",
+            protocol = ProxySourceProtocol.MTPROTO,
+            status = ProxySourceStatus.ACTIVE
+        ),
+        ProxySourcePresentation(
             id = "hookzof-socks5",
             name = "hookzof SOCKS5",
             repository = "hookzof/socks5_list · proxy.txt",

@@ -49,7 +49,7 @@ class ProxyRepositoryTest {
         assertTrue(snapshots.any { list -> list.any { it.telegramOk == true } })
         val result = scan.await()
 
-        assertEquals(6, peak)
+        assertEquals(5, peak)
         assertEquals(0, active)
         assertEquals(20, result.size)
         assertTrue(result.all { it.telegramOk == true })
@@ -78,7 +78,7 @@ class ProxyRepositoryTest {
         val manual = (20 until 30).map { async { repository.recheckOneProxy(testProxy(it)) } }
         bulk.await()
         manual.awaitAll()
-        assertEquals(6, peak)
+        assertEquals(5, peak)
         assertEquals(0, active)
     }
 
@@ -158,10 +158,58 @@ class ProxyRepositoryTest {
         )
         val scan = async { repository.loadAndCheckProxies(emptyList()) }
         runCurrent()
-        assertEquals(6, active)
+        assertEquals(5, active)
         scan.cancelAndJoin()
         assertEquals(0, active)
         assertEquals(true, repository.recheckOneProxy(testProxy()).telegramOk)
+    }
+
+    @Test
+    fun selectedMtprotoFeedsMergeDuplicatesAndReuseCachedVerification() = runTest {
+        val shared = testProxy(1)
+        val other = testProxy(2)
+        val cached = shared.copy(telegramOk = true, tcpOk = true,
+            telegramPingMs = 120L, checkedAt = 3_599_000L, isFavorite = true)
+        var checked = 0
+        val repo = ProxyRepository(
+            sourceLoader = { error("Legacy loader must not run with selected inventories") },
+            tcpCheck = { checked++; it.copy(tcpOk = false, telegramOk = false) },
+            telegramCheck = { error("Unexpected TDLib check") },
+            nowMillis = { 3_600_000L }
+        )
+        val output = repo.loadAndCheckProxies(
+            cachedProxies = listOf(cached),
+            mtprotoProxies = listOf(shared.copy(sourceId = "solispirit-mtproto"),
+                shared.copy(sourceId = "tgmtproxy-mtproto"),
+                other.copy(sourceId = "shablin-mtproto"))
+        )
+        assertEquals(2, output.size)
+        assertEquals(1, checked)
+        assertEquals(cached, output.first())
+        assertEquals(1, output.count { it.cacheKey == shared.cacheKey })
+        assertEquals("shablin-mtproto", output.single { it.server == other.server }.sourceId)
+    }
+
+    @Test
+    fun limitedScanGivesEachEnabledMtprotoFeedAChance() = runTest {
+        val sources = listOf("solispirit-mtproto", "tgmtproxy-mtproto", "shablin-mtproto",
+            "dubblebyte-mtproto")
+        val mt = sources.flatMapIndexed { index, id ->
+            (0 until 100).map { i -> testProxy(index * 100 + i).copy(sourceId = id) }
+        }
+        val attempts = mutableListOf<String>()
+        val repo = ProxyRepository(
+            sourceLoader = { error("Must not use the legacy source") },
+            tcpCheck = { attempts += it.sourceId; it.copy(tcpOk = false, telegramOk = false) },
+            telegramCheck = { error("Telegram cannot follow failed TCP in incremental run") }
+        )
+        val checked = repo.loadAndCheckProxies(
+            cachedProxies = emptyList(), mtprotoProxies = mt, scanLimit = 12, parallelChecks = 1
+        )
+        assertEquals(400, checked.size)
+        assertEquals(12, attempts.size)
+        assertEquals(sources, attempts.distinct())
+        assertEquals(sources.map { 3 }, sources.map { id -> attempts.count { it == id } })
     }
 
     @Test

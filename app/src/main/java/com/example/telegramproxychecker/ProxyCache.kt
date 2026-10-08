@@ -291,6 +291,50 @@ internal class ProxySqliteStore private constructor(context: Context) :
     }
 
     /**
+     * The source_entries table keeps all feed memberships, while checked_proxies
+     * stores a single scan result per protocol/server/port/secret identity.
+     * Disabling one feed must not hide a proxy still present in another feed.
+     */
+    @Synchronized
+    fun mtprotoFromSources(sourceIds: List<String>): List<MtProxy> {
+        if (sourceIds.isEmpty()) return emptyList()
+        val proxies = ArrayList<MtProxy>()
+        for (sourceId in sourceIds.distinct()) {
+            readableDatabase.rawQuery(
+                """SELECT server, port, original_url, secret
+                   FROM source_entries
+                   WHERE source_id = ? AND protocol = ?
+                   ORDER BY proxy_key""".trimIndent(),
+                arrayOf(sourceId, ProxySourceProtocol.MTPROTO.name)
+            ).use { rows ->
+                while (rows.moveToNext()) {
+                    proxies += MtProxy(
+                        server = rows.getString(0),
+                        port = rows.getInt(1),
+                        originalUrl = rows.getString(2),
+                        secret = rows.getString(3),
+                        protocol = ProxySourceProtocol.MTPROTO,
+                        sourceId = sourceId
+                    )
+                }
+            }
+        }
+        return proxies.distinctBy { it.cacheKey }
+    }
+
+    @Synchronized
+    fun uniqueInventoryCount(sourceIds: Set<String>): Int {
+        if (sourceIds.isEmpty()) return 0
+        val placeholders = List(sourceIds.size) { "?" }.joinToString(",")
+        readableDatabase.rawQuery(
+            "SELECT COUNT(DISTINCT proxy_key) FROM source_entries WHERE source_id IN ($placeholders)",
+            sourceIds.toTypedArray()
+        ).use { rows ->
+            return if (rows.moveToFirst()) rows.getInt(0) else 0
+        }
+    }
+
+    /**
      * A bounded, rotating selection from the current SOCKS5 feed.
      * Unchecked entries precede previously checked ones, then oldest checks first.
      * Checked timestamps survive process restarts, so the next run progresses

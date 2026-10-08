@@ -48,8 +48,8 @@ private val blue = Color(0xFF229ED9)
 @Composable
 internal fun SettingsScreen(
     onBack: () -> Unit,
-    mtprotoEnabled: Boolean,
-    socks5Enabled: Boolean,
+    enabledSourceIds: Set<String>,
+    selectedUniqueCount: Int?,
     sourceSwitchEnabled: Boolean,
     inventoryCounts: Map<String, SourceInventoryCount>,
     inventoryErrors: Map<String, String>,
@@ -64,15 +64,12 @@ internal fun SettingsScreen(
     onScanLimitChange: (Int) -> Unit,
     onScanAllChange: (Boolean) -> Unit,
     onRefreshInventory: () -> Unit,
-    onMtprotoEnabledChange: (Boolean) -> Unit,
-    onSocks5EnabledChange: (Boolean) -> Unit
+    onSourceEnabledChange: (String, Boolean) -> Unit
 ) {
-    val selected = ProxySourceCatalogue.entries.filter { source ->
-        if (source.protocol == ProxySourceProtocol.MTPROTO) mtprotoEnabled else
-            if (source.protocol == ProxySourceProtocol.SOCKS5) socks5Enabled else false
-    }
-    val allLoaded = selected.all { inventoryCounts.containsKey(it.id) }
-    val selectedTotal = selected.sumOf { inventoryCounts[it.id]?.count ?: 0 }
+    val selected = ProxySourceCatalogue.entries.filter { it.id in enabledSourceIds }
+    val allLoaded = selected.all { inventoryCounts.containsKey(it.id) } &&
+        selectedUniqueCount != null
+    val selectedTotal = selectedUniqueCount ?: 0
 
     Scaffold(
         containerColor = top,
@@ -106,29 +103,24 @@ internal fun SettingsScreen(
                     }
                 }
                 ProxySourceCatalogue.entries.forEach { source ->
-                    val isMtproto = source.protocol == ProxySourceProtocol.MTPROTO
-                    val enabled = if (isMtproto) mtprotoEnabled else socks5Enabled
+                    val enabled = source.id in enabledSourceIds
                     val count = inventoryCounts[source.id]
                     SourceToggleRow(
                         source = source,
                         checked = enabled,
                         enabled = sourceSwitchEnabled,
-                        status = when {
-                            !isMtproto && enabled -> "Включён"
-                            !isMtproto -> "Выключен"
-                            enabled -> "Включён"
-                            else -> "Выключен"
-                        },
+                        status = if (enabled) "Включён" else "Выключен",
                         count = count?.count,
+                        fetchedAt = count?.fetchedAt,
                         stale = source.id in inventoryErrors,
-                        onCheckedChange = if (isMtproto) onMtprotoEnabledChange else onSocks5EnabledChange
+                        onCheckedChange = { onSourceEnabledChange(source.id, it) }
                     )
                 }
                 Row(
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 3.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text("В выбранных источниках", color = gray, fontSize = 13.sp, modifier = Modifier.weight(1f))
+                    Text("Уникальных адресов в выбранных источниках", color = gray, fontSize = 13.sp, modifier = Modifier.weight(1f))
                     Text(
                         if (allLoaded) "%,d".format(java.util.Locale.US, selectedTotal).replace(',', ' ')
                         else "—",
@@ -247,6 +239,7 @@ private fun SourceToggleRow(
     enabled: Boolean,
     status: String,
     count: Int?,
+    fetchedAt: Long?,
     stale: Boolean,
     onCheckedChange: (Boolean) -> Unit
 ) {
@@ -277,6 +270,12 @@ private fun SourceToggleRow(
                     },
                     color = if (stale) gray else blue, fontSize = 12.sp
                 )
+                if (fetchedAt != null && fetchedAt > 0L) {
+                    val date = java.text.SimpleDateFormat(
+                        "dd.MM.yyyy HH:mm", java.util.Locale.getDefault()
+                    ).format(java.util.Date(fetchedAt))
+                    Text("Последнее обновление: $date", color = gray, fontSize = 10.sp)
+                }
             }
             Spacer(Modifier.width(8.dp))
             Switch(checked = checked, enabled = enabled, onCheckedChange = onCheckedChange)
