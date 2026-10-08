@@ -483,16 +483,20 @@ fun ProxyItem(
         null -> TextMuted
     }
 
-    val telegramText = when (proxy.telegramOk) {
-        true -> "Telegram: OK, ${formatMs(proxy.telegramPingMs)}"
-        false -> "Telegram: FAIL"
-        null -> "Telegram: не проверен"
+    // A failed quick TCP precheck is NOT a completed Telegram TestProxy request.
+    val telegramWasSkipped = proxy.tcpOk == false && proxy.telegramError == "TCP недоступен"
+    val telegramText = when {
+        telegramWasSkipped -> "Telegram: не проверен (TCP FAIL)"
+        proxy.telegramOk == true -> "Telegram: OK, ${formatMs(proxy.telegramPingMs)}"
+        proxy.telegramOk == false -> "Telegram: FAIL"
+        else -> "Telegram: не проверен"
     }
 
-    val telegramColor = when (proxy.telegramOk) {
-        true -> AccentGreen
-        false -> AccentRed
-        null -> AccentYellow
+    val telegramColor = when {
+        telegramWasSkipped -> AccentYellow
+        proxy.telegramOk == true -> AccentGreen
+        proxy.telegramOk == false -> AccentRed
+        else -> AccentYellow
     }
 
     Card(
