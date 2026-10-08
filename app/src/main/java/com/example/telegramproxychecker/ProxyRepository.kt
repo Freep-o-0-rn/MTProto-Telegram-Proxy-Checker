@@ -227,9 +227,12 @@ class ProxyRepository internal constructor(
         // Fresh results are still reused by incremental refreshes.
         if (force) return proxies.distinctBy { it.cacheKey }
 
-        // Quick manual "Проверка": only previously TCP-reachable servers.
-        // Re-test regardless of TTL; a Telegram FAIL may become Telegram OK.
-        if (tcpOkOnly) return proxies.filter { it.tcpOk == true }.distinctBy { it.cacheKey }
+        // Quick manual "Проверка": previous TCP OK plus Telegram OK with
+        // TCP FAIL. A successful TDLib result must remain retryable even if
+        // the standalone TCP precheck failed, and TTL must not block rechecks.
+        if (tcpOkOnly) return proxies.filter {
+            it.tcpOk == true || it.isUnstableTelegramOk
+        }.distinctBy { it.cacheKey }
 
         val needCheck = proxies.filterNot { isFresh(it) }
 
