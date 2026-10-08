@@ -23,6 +23,15 @@ class ProxyViewModel(application: Application) : AndroidViewModel(application) {
 
     var mtprotoSourceEnabled by mutableStateOf(ProxySourceSettings.mtprotoEnabled(application))
         private set
+    var socks5SourceEnabled by mutableStateOf(ProxySourceSettings.socks5Enabled(application))
+        private set
+    internal var inventoryCounts by mutableStateOf<Map<String, SourceInventoryCount>>(emptyMap())
+        private set
+    var inventoryErrors by mutableStateOf<Map<String, String>>(emptyMap())
+        private set
+    var inventoryRefreshing by mutableStateOf(false)
+        private set
+    private val inventoryRepository = ProxySourceInventory(application)
 
     var showOnlyAvailable by mutableStateOf(false)
         private set
@@ -82,6 +91,32 @@ class ProxyViewModel(application: Application) : AndroidViewModel(application) {
         if (ScanSession.state.value.running || checkingProxyKeys.isNotEmpty()) return
         ProxySourceSettings.setMtprotoEnabled(getApplication(), enabled)
         mtprotoSourceEnabled = enabled
+    }
+
+    fun updateSocks5SourceEnabled(enabled: Boolean) {
+        if (ScanSession.state.value.running || checkingProxyKeys.isNotEmpty()) return
+        // SOCKS5 remains absent from the MTProto scanner until the next stage.
+        ProxySourceSettings.setSocks5Enabled(getApplication(), enabled)
+        socks5SourceEnabled = enabled
+    }
+
+    fun refreshSourceInventory() {
+        if (inventoryRefreshing) return
+        inventoryRefreshing = true
+        viewModelScope.launch {
+            try {
+                inventoryCounts = inventoryRepository.cached()
+                val result = inventoryRepository.refresh()
+                inventoryCounts = result.counts
+                inventoryErrors = result.errors
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                inventoryErrors = mapOf("sources" to (e.message ?: "Ошибка загрузки источников"))
+            } finally {
+                inventoryRefreshing = false
+            }
+        }
     }
 
     fun pauseScan() {
