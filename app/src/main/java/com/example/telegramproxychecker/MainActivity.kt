@@ -2,6 +2,8 @@ package com.example.telegramproxychecker
 
 import android.content.Context
 import android.content.Intent
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Build
@@ -179,6 +181,7 @@ fun ProxyApp(viewModel: ProxyViewModel) {
         proxies.count { it.telegramOk == false && it.tcpOk == true }
     }
     val favoriteCount = remember(proxies) { proxies.count { it.isFavorite } }
+    val telegramFailures = remember(proxies) { topProxyFailures(proxies) }
 
     val visibleProxies = remember(proxies, showOnlyAvailable, showOnlyFavorites) {
         proxies.filter {
@@ -291,7 +294,18 @@ fun ProxyApp(viewModel: ProxyViewModel) {
                         telegramFail = telegramFailCount,
                         favorites = favoriteCount,
                         visible = visibleProxies.size,
-                        cardPadding = cardPadding
+                        cardPadding = cardPadding,
+                        telegramFailures = telegramFailures,
+                        onCopyDiagnostics = {
+                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                            clipboard.setPrimaryClip(
+                                ClipData.newPlainText(
+                                    "Telegram proxy diagnostics",
+                                    buildProxyDiagnostics(proxies, checkedCount, totalCount)
+                                )
+                            )
+                            Toast.makeText(context, "Диагностика скопирована без secret", Toast.LENGTH_SHORT).show()
+                        }
                     )
                 }
 
@@ -381,7 +395,9 @@ fun StatsCard(
     telegramFail: Int,
     favorites: Int,
     visible: Int,
-    cardPadding: androidx.compose.ui.unit.Dp
+    cardPadding: androidx.compose.ui.unit.Dp,
+    telegramFailures: List<ProxyFailureCount>,
+    onCopyDiagnostics: () -> Unit
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -409,6 +425,18 @@ fun StatsCard(
             Text("Telegram FAIL: $telegramFail", color = AccentRed)
             Text("Избранных: $favorites", color = AccentYellow)
             Text("Показано: $visible", color = TextMuted)
+
+            if (telegramFailures.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Text("Основные причины Telegram FAIL:", color = TextMain, fontWeight = FontWeight.Bold)
+                telegramFailures.forEach { failure ->
+                    Text("${failure.count} × ${failure.reason.take(130)}", color = TextMuted)
+                }
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+            Button(onClick = onCopyDiagnostics) {
+                Text("Скопировать диагностику")
+            }
         }
     }
 }

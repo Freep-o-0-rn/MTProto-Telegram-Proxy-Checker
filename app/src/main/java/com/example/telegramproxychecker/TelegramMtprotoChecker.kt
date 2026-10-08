@@ -41,7 +41,12 @@ class TelegramMtprotoChecker internal constructor(
             )
         }
 
-        val result = withContext(dispatcher) { testProxy(proxy) }
+        val result = try {
+            withContext(dispatcher) { testProxy(proxy) }
+        } catch (e: LinkageError) {
+            // A broken or missing tdjni binary is not a proxy failure. Report it explicitly.
+            TelegramCheckResult(false, null, "TDLib JNI недоступна: " + (e.message ?: e.javaClass.simpleName))
+        }
         return proxy.copy(
             telegramOk = result.ok,
             telegramPingMs = result.pingMs,
@@ -124,7 +129,9 @@ private class TdlibProbeClient : TelegramProbeClient {
         client.send(request, Client.ResultHandler { response ->
             onResult(when (response) {
                 is TdApi.Ok -> TelegramCheckResult(true, (System.nanoTime() - start) / 1_000_000, null)
-                is TdApi.Error -> TelegramCheckResult(false, null, response.message)
+                is TdApi.Error -> TelegramCheckResult(
+                    false, null, "TDLib " + response.code + ": " + response.message
+                )
                 else -> TelegramCheckResult(false, null, "Неожиданный ответ TDLib")
             })
         })

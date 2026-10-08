@@ -166,4 +166,35 @@ class ProxyRepositoryTest {
         assertFalse(merged[0].isFavorite)
         assertTrue(merged[1].isFavorite)
     }
+
+    @Test
+    fun oldFailuresRotateInsteadOfRepeatingFirstTwenty() = runTest {
+        val cache = (0 until 50).map { testProxy(it).copy(checkedAt = 1L, telegramOk = false) }
+        var now = 3_600_000L
+        val checked = mutableListOf<String>()
+        val repository = ProxyRepository(
+            sourceLoader = { cache },
+            tcpCheck = {
+                checked += it.cacheKey
+                it.copy(tcpOk = false, telegramOk = false)
+            },
+            telegramCheck = { error("No Telegram test if TCP is unavailable") },
+            nowMillis = { now }
+        )
+
+        val first = repository.loadAndCheckProxies(cache)
+        val firstGroup = checked.toList()
+        assertEquals(20, firstGroup.size)
+
+        // All 20 first failures are stale again after thirty minutes.
+        // The thirty untouched failures are older and must take priority.
+        now += 1_800_001L
+        checked.clear()
+        repository.loadAndCheckProxies(first)
+        val secondGroup = checked.toList()
+        assertEquals(20, secondGroup.size)
+        assertTrue(firstGroup.toSet().intersect(secondGroup.toSet()).isEmpty())
+        assertEquals(40, (firstGroup + secondGroup).toSet().size)
+    }
+
 }

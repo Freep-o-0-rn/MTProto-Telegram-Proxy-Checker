@@ -75,7 +75,7 @@ class ProxyCache(context: Context) {
 
         prefs.edit()
             .putString("proxies_json", array.toString())
-            .apply()
+            .commit() // Called on Dispatchers.IO; persist before stopping the service.
     }
 
     private fun putNullable(obj: JSONObject, key: String, value: Any?) {

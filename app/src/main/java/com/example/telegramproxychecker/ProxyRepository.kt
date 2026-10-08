@@ -183,9 +183,11 @@ class ProxyRepository internal constructor(
         val newProxies = needCheck
             .filter { it.checkedAt == null }
 
+        // Rotate failures by oldest check. Using source order here permanently starves
+        // proxies beyond the first 20 when the GitHub list stays unchanged.
         val oldTelegramFail = needCheck
-            .filter { it.checkedAt != null }
-            .filter { it.telegramOk == false }
+            .filter { it.checkedAt != null && it.telegramOk == false }
+            .sortedBy { it.checkedAt }
             .take(MAX_OLD_FAIL_RECHECK)
 
         val unknown = needCheck
