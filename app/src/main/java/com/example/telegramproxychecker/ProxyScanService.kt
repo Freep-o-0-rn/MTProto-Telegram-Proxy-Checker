@@ -109,11 +109,12 @@ class ProxyScanService : Service() {
                                 "Не удалось обновить. Показан сохранённый список."
                         )
                     } finally {
-                        ScanSession.finish()
                         withContext(NonCancellable) {
                             try {
                                 ScanSession.saveCache(applicationContext)
                             } finally {
+                                // Keep the scan marked active until saving and shutdown finish.
+                                ScanSession.finish()
                                 stopForeground(STOP_FOREGROUND_REMOVE)
                                 foreground = false
                                 stopSelf()
