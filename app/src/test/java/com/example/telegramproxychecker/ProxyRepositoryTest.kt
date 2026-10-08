@@ -314,4 +314,125 @@ class ProxyRepositoryTest {
         assertEquals(50, refreshed.size)
     }
 
+
+    @Test
+    fun quickCheckOnlyAddsTelegramSuccessesWithoutErasingPreviouslyConfirmedResults() = runTest {
+        val oldSuccess = testProxy(400).copy(
+            tcpOk = true, tcpPingMs = 20, telegramOk = true,
+            telegramPingMs = 110, checkedAt = 100L
+        )
+        val oldSuccessWithTcpFailure = testProxy(401).copy(
+            tcpOk = true, tcpPingMs = 18, telegramOk = true,
+            telegramPingMs = 90, checkedAt = 100L
+        )
+        val newSuccess = testProxy(402).copy(
+            tcpOk = true, telegramOk = false, checkedAt = 100L
+        )
+        val remainingFailure = testProxy(403).copy(
+            tcpOk = true, telegramOk = false, checkedAt = 100L
+        )
+        val source = listOf(oldSuccess, oldSuccessWithTcpFailure, newSuccess, remainingFailure)
+        val attempted = mutableListOf<String>()
+        val repo = ProxyRepository(
+            sourceLoader = { source },
+            tcpCheck = {
+                attempted += it.cacheKey
+                if (it.cacheKey == oldSuccessWithTcpFailure.cacheKey)
+                    it.copy(tcpOk = false, tcpPingMs = null, telegramOk = false,
+                        telegramPingMs = null, telegramError = "TCP недоступен")
+                else it.copy(tcpOk = true, tcpPingMs = 25)
+            },
+            telegramCheck = {
+                if (it.cacheKey == newSuccess.cacheKey)
+                    it.copy(telegramOk = true, telegramPingMs = 65, telegramError = null)
+                else
+                    it.copy(telegramOk = false, telegramPingMs = null,
+                        telegramError = "TDLib timeout")
+            },
+            nowMillis = { 500L }
+        )
+        val snapshots = mutableListOf<List<MtProxy>>()
+        val output = repo.loadAndCheckProxies(
+            cachedProxies = source, tcpOkOnly = true, parallelChecks = 1,
+            onUpdate = { snapshots += it }
+        )
+        assertEquals(source.map { it.cacheKey }.toSet(), attempted.toSet())
+        assertEquals(3, output.count { it.telegramOk == true })
+        assertEquals(oldSuccess, output.single { it.cacheKey == oldSuccess.cacheKey })
+        assertEquals(oldSuccessWithTcpFailure,
+            output.single { it.cacheKey == oldSuccessWithTcpFailure.cacheKey })
+        assertEquals(true, output.single { it.cacheKey == newSuccess.cacheKey }.telegramOk)
+        assertEquals(500L, output.single { it.cacheKey == newSuccess.cacheKey }.checkedAt)
+        assertEquals(false, output.single { it.cacheKey == remainingFailure.cacheKey }.telegramOk)
+        assertEquals(500L, output.single { it.cacheKey == remainingFailure.cacheKey }.checkedAt)
+        assertEquals(output, snapshots.last())
+        assertTrue(snapshots.all { snapshot ->
+            snapshot.count { it.telegramOk == true } >= 2
+        })
+    }
+
+    @Test
+    fun quickCheckKeepsFullScanMtprotoEntriesRemovedFromCurrentFeeds() = runTest {
+        val previous = testProxy(410).copy(
+            tcpOk = true, telegramOk = true, telegramPingMs = 130, checkedAt = 10L
+        )
+        val newFromFeed = testProxy(411).copy(tcpOk = true, telegramOk = false)
+        val repo = ProxyRepository(
+            sourceLoader = { error("Explicit inventory must be used") },
+            tcpCheck = { it.copy(tcpOk = true) },
+            telegramCheck = {
+                if (it.cacheKey == previous.cacheKey)
+                    it.copy(telegramOk = false, telegramPingMs = null,
+                        telegramError = "TDLib timeout")
+                else it.copy(telegramOk = true, telegramPingMs = 75)
+            },
+            nowMillis = { 20L }
+        )
+        val output = repo.loadAndCheckProxies(
+            cachedProxies = listOf(previous),
+            mtprotoProxies = listOf(newFromFeed),
+            tcpOkOnly = true,
+            parallelChecks = 1
+        )
+        assertEquals(2, output.size)
+        assertEquals(previous, output.single { it.cacheKey == previous.cacheKey })
+        assertEquals(true, output.single { it.cacheKey == newFromFeed.cacheKey }.telegramOk)
+    }
+
+    @Test
+    fun fullCheckStillReplacesOutdatedTelegramSuccessWithCurrentFailure() = runTest {
+        val oldSuccess = testProxy(420).copy(
+            tcpOk = true, telegramOk = true, telegramPingMs = 90, checkedAt = 10L
+        )
+        val repo = ProxyRepository(
+            sourceLoader = { listOf(oldSuccess) },
+            tcpCheck = { it.copy(tcpOk = false, telegramOk = false,
+                telegramPingMs = null, telegramError = "TCP недоступен") },
+            telegramCheck = { it.copy(telegramOk = false, telegramPingMs = null,
+                telegramError = "TDLib timeout") },
+            nowMillis = { 20L }
+        )
+        val output = repo.loadAndCheckProxies(listOf(oldSuccess), force = true)
+        assertEquals(false, output.single().telegramOk)
+        assertEquals("TDLib timeout", output.single().telegramError)
+        assertEquals(20L, output.single().checkedAt)
+    }
+
+    @Test
+    fun quickCheckUpdatesSuccessfulTelegramResultWithLatestLatency() = runTest {
+        val oldSuccess = testProxy(430).copy(
+            tcpOk = true, telegramOk = true, telegramPingMs = 400, checkedAt = 10L
+        )
+        val repo = ProxyRepository(
+            sourceLoader = { listOf(oldSuccess) },
+            tcpCheck = { it.copy(tcpOk = true, tcpPingMs = 10) },
+            telegramCheck = { it.copy(telegramOk = true, telegramPingMs = 60) },
+            nowMillis = { 20L }
+        )
+        val output = repo.loadAndCheckProxies(listOf(oldSuccess), tcpOkOnly = true)
+        assertEquals(true, output.single().telegramOk)
+        assertEquals(60L, output.single().telegramPingMs)
+        assertEquals(20L, output.single().checkedAt)
+    }
+
 }
