@@ -120,4 +120,37 @@ class DashboardPresentationTest {
         assertEquals(listOf("a", "b", "c"), second)
         assertEquals(second.size, second.toSet().size)
     }
+    @Test
+    fun unstableTdlibSuccessStaysWorkingButFollowsStableConnections() {
+        val unstableFast = proxy("unstable-fast", 70L, true)
+            .copy(tcpOk = false, tcpPingMs = null)
+        val stableSlow = proxy("stable-slow", 250L, true)
+            .copy(tcpOk = true, tcpPingMs = 30)
+        val tcpFail = proxy("tcp-fail", null, false)
+            .copy(tcpOk = false)
+        val proxies = listOf(unstableFast, stableSlow, tcpFail)
+
+        assertTrue(unstableFast.isUnstableTelegramOk)
+        assertFalse(stableSlow.isUnstableTelegramOk)
+        assertFalse(tcpFail.isUnstableTelegramOk)
+        assertEquals(
+            listOf("stable-slow", "unstable-fast"),
+            dashboardProxies(proxies, ProxyTab.WORKING).map { it.server }
+        )
+        assertEquals(2, proxies.count { it.telegramOk == true })
+        assertEquals(1, proxies.count { it.tcpOk == true })
+        assertEquals(3, dashboardProxies(proxies, ProxyTab.ALL).size)
+        assertEquals(1, dashboardProxies(proxies, ProxyTab.TCP_OK).size)
+    }
+
+    @Test
+    fun unstableFlagIsDerivedFromCurrentTcpAndTdlibResults() {
+        val proxy = proxy("unstable", 95L, true).copy(tcpOk = false)
+        assertTrue(proxy.isUnstableTelegramOk)
+        assertFalse(proxy.copy(tcpOk = true).isUnstableTelegramOk)
+        assertFalse(proxy.copy(telegramOk = false).isUnstableTelegramOk)
+        assertFalse(proxy.copy(telegramOk = null).isUnstableTelegramOk)
+        assertFalse(proxy.copy(tcpOk = null).isUnstableTelegramOk)
+    }
+
 }
