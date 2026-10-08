@@ -2,7 +2,7 @@ package com.example.telegramproxychecker
 
 /** Presentation only: never changes repository order or scan scheduling. */
 internal enum class ProxyTab {
-    WORKING, ALL, FAVORITES
+    WORKING, ALL, FAVORITES, TCP_OK
 }
 
 internal fun dashboardProxies(
@@ -17,14 +17,22 @@ internal fun dashboardProxies(
                 ProxyTab.WORKING -> it.telegramOk == true
                 ProxyTab.ALL -> true
                 ProxyTab.FAVORITES -> it.isFavorite
+                ProxyTab.TCP_OK -> it.tcpOk == true
             }
         }
         .filter { search.isEmpty() || it.server.contains(search, ignoreCase = true) || it.port.toString().contains(search) }
         .sortedWith(
-            compareBy<MtProxy> { when (it.telegramOk) { true -> 0; null -> 1; false -> 2 } }
-                .thenBy { it.telegramPingMs ?: Long.MAX_VALUE }
-                .thenBy { it.server.lowercase() }
-                .thenBy { it.port }
+            if (tab == ProxyTab.TCP_OK) {
+                // Display TCP-reachable servers even when Telegram TestProxy fails.
+                compareBy<MtProxy> { it.tcpPingMs ?: Long.MAX_VALUE }
+                    .thenBy { it.server.lowercase() }
+                    .thenBy { it.port }
+            } else {
+                compareBy<MtProxy> { when (it.telegramOk) { true -> 0; null -> 1; false -> 2 } }
+                    .thenBy { it.telegramPingMs ?: Long.MAX_VALUE }
+                    .thenBy { it.server.lowercase() }
+                    .thenBy { it.port }
+            }
         )
         .toList()
 }

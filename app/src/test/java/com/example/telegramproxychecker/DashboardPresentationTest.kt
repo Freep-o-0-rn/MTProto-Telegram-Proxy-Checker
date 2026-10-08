@@ -56,6 +56,42 @@ class DashboardPresentationTest {
     }
 
     @Test
+    fun tcpDashboardCardIncludesTelegramFailuresAndOrdersByTcpPing() {
+        val proxies = listOf(
+            proxy("slow-tcp", ping = 140L, ok = true).copy(tcpOk = true, tcpPingMs = 1500L),
+            proxy("closed", ok = false).copy(tcpOk = false, tcpPingMs = null),
+            proxy("fast-tcp", ok = false).copy(tcpOk = true, tcpPingMs = 80L),
+            proxy("unchecked").copy(tcpOk = null, tcpPingMs = null),
+            proxy("middle-tcp", ok = null).copy(tcpOk = true, tcpPingMs = 300L)
+        )
+        assertEquals(
+            listOf("fast-tcp", "middle-tcp", "slow-tcp"),
+            dashboardProxies(proxies, ProxyTab.TCP_OK).map { it.server }
+        )
+        // Telegram OK is stricter than TCP OK, and the counters must not conflate them.
+        assertEquals(listOf("slow-tcp"), dashboardProxies(proxies, ProxyTab.WORKING).map { it.server })
+        assertEquals(5, dashboardProxies(proxies, ProxyTab.ALL).size)
+    }
+
+    @Test
+    fun tcpFilterHonorsSearchAndDoesNotRequireTelegramOk() {
+        val proxies = listOf(
+            proxy("192.0.2.10", ok = false, port = 1080).copy(tcpOk = true, tcpPingMs = 200),
+            proxy("192.0.2.11", ok = false, port = 1080).copy(tcpOk = false),
+            proxy("other.example", ok = null, port = 80).copy(tcpOk = true, tcpPingMs = 120)
+        )
+        assertEquals(
+            listOf("192.0.2.10"),
+            dashboardProxies(proxies, ProxyTab.TCP_OK, "192.0.2").map { it.server }
+        )
+        assertEquals(
+            listOf("192.0.2.10"),
+            dashboardProxies(proxies, ProxyTab.TCP_OK, "1080").map { it.server }
+        )
+        assertTrue(dashboardProxies(proxies, ProxyTab.TCP_OK, "absent").isEmpty())
+    }
+
+    @Test
     fun searchOnlyMatchesDomainIpOrPortWithoutSecret() {
         val list = listOf(
             proxy("alpha.example", 200L, true, port = 443),

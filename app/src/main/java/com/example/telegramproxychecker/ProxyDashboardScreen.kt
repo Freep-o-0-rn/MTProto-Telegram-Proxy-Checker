@@ -179,7 +179,11 @@ internal fun ProxyDashboardScreen(
                 verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 item(key = "dashboard") {
-                    DashboardSummary(proxies)
+                    DashboardSummary(
+                        proxies = proxies,
+                        selectedTab = selectedTab,
+                        onTabSelected = onTabSelected
+                    )
                 }
 
                 // The large statistics scroll away; filters and progress stay visible.
@@ -212,6 +216,21 @@ internal fun ProxyDashboardScreen(
                             searchVisible = searchVisible,
                             onToggleSearch = { onSearchVisibleChange(!searchVisible) }
                         )
+                        if (selectedTab == ProxyTab.TCP_OK) {
+                            // The dashboard itself scrolls away; keep the active
+                            // TCP-only filter discoverable in the sticky controls.
+                            TextButton(
+                                onClick = { onTabSelected(ProxyTab.ALL) },
+                                modifier = Modifier.height(30.dp),
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
+                            ) {
+                                Text(
+                                    "TCP OK · ${proxies.count { it.tcpOk == true }}  × Сбросить",
+                                    color = blue,
+                                    fontSize = 11.sp
+                                )
+                            }
+                        }
                         if (searchVisible) {
                             OutlinedTextField(
                                 value = searchQuery,
@@ -274,32 +293,62 @@ internal fun ProxyDashboardScreen(
 }
 
 @Composable
-private fun DashboardSummary(proxies: List<MtProxy>) {
+private fun DashboardSummary(
+    proxies: List<MtProxy>,
+    selectedTab: ProxyTab,
+    onTabSelected: (ProxyTab) -> Unit
+) {
     val ok = proxies.count { it.telegramOk == true }
     val tcp = proxies.count { it.tcpOk == true }
     Row(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 8.dp),
         horizontalArrangement = Arrangement.spacedBy(7.dp)
     ) {
-        StatTile("Telegram OK", "$ok", green, Modifier.weight(1f))
-        StatTile("Всего", "${proxies.size}", mainText, Modifier.weight(1f))
-        StatTile("TCP OK", "$tcp", blue, Modifier.weight(1f))
+        StatTile(
+            label = "Telegram OK", value = "$ok", color = green,
+            selected = selectedTab == ProxyTab.WORKING,
+            onClick = { onTabSelected(ProxyTab.WORKING) },
+            modifier = Modifier.weight(1f)
+        )
+        StatTile(
+            label = "Всего", value = "${proxies.size}", color = mainText,
+            selected = selectedTab == ProxyTab.ALL,
+            onClick = { onTabSelected(ProxyTab.ALL) },
+            modifier = Modifier.weight(1f)
+        )
+        StatTile(
+            label = "TCP OK", value = "$tcp", color = blue,
+            selected = selectedTab == ProxyTab.TCP_OK,
+            onClick = { onTabSelected(ProxyTab.TCP_OK) },
+            modifier = Modifier.weight(1f)
+        )
     }
 }
 
 @Composable
-private fun StatTile(label: String, value: String, color: Color, modifier: Modifier) {
+private fun StatTile(
+    label: String,
+    value: String,
+    color: Color,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier
+) {
     Card(
-        modifier = modifier,
+        onClick = onClick,
+        modifier = modifier.semantics { contentDescription = "Показать: $label, $value прокси" },
         shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(containerColor = surface)
+        border = if (selected) BorderStroke(1.dp, color.copy(alpha = 0.8f)) else null,
+        colors = CardDefaults.cardColors(
+            containerColor = if (selected) Color(0xFF213A50) else surface
+        )
     ) {
         Column(
             modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp, horizontal = 4.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Text(value, color = color, fontWeight = FontWeight.Bold, fontSize = 23.sp)
-            Text(label, color = mutedText, fontSize = 10.sp, maxLines = 1)
+            Text(label, color = if (selected) mainText else mutedText, fontSize = 10.sp, maxLines = 1)
         }
     }
 }
@@ -460,6 +509,7 @@ private fun EmptyProxyState(
                     !hasAny && isScanning -> "Загружаем и проверяем прокси…"
                     !hasAny -> "Список прокси пока пуст"
                     tab == ProxyTab.WORKING -> "Рабочие прокси пока не найдены"
+                    tab == ProxyTab.TCP_OK -> "Прокси с TCP OK пока не найдены"
                     tab == ProxyTab.FAVORITES -> "В избранном пока ничего нет"
                     else -> "Прокси не найдены"
                 },
