@@ -2,6 +2,7 @@ package com.example.telegramproxychecker
 
 import android.content.Context
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -86,13 +87,16 @@ object ScanSession {
             check(!mutableState.value.running) {
                 "Остановите сканирование перед очисткой базы"
             }
-            val result = clearStorage()
-            // Reset in-memory snapshots and differential-save bookkeeping together.
-            mutableState.value = ScanSnapshot()
-            lastPersisted = emptyMap()
-            cacheLoaded = true
-            resumeGate.value = true
-            result
+            // Cancellation after SQLite DELETE must not leave old runtime rows
+            // to be reinserted by a delayed saveCache() job.
+            withContext(NonCancellable) {
+                val result = clearStorage()
+                mutableState.value = ScanSnapshot()
+                lastPersisted = emptyMap()
+                cacheLoaded = true
+                resumeGate.value = true
+                result
+            }
         }
 
     fun start() {

@@ -1,5 +1,7 @@
 package com.example.telegramproxychecker
 
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -49,6 +51,26 @@ class ProxyDataCleanupTest {
         } finally {
             ScanSession.clearProxyData { ProxyCleanupResult(0, 0, true) }
         }
+    }
+
+    @Test
+    fun cancellationAfterDeletionStartsStillResetsRuntimeCache() = runTest {
+        ScanSession.updateProxies(listOf(proxy()))
+        val entered = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        val clearJob = launch {
+            ScanSession.clearProxyData {
+                entered.complete(Unit)
+                release.await()
+                ProxyCleanupResult(1, 1, true)
+            }
+        }
+        entered.await()
+        clearJob.cancel()
+        release.complete(Unit)
+        clearJob.join()
+        assertTrue(ScanSession.state.value.proxies.isEmpty())
+        assertEquals(0, ScanSession.state.value.total)
     }
 
     @Test
