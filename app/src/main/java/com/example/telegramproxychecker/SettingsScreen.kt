@@ -56,6 +56,11 @@ internal fun SettingsScreen(
     inventoryRefreshing: Boolean,
     scanLimit: Int,
     scanAll: Boolean,
+    parallelChecks: Int,
+    autoConcurrency: Boolean,
+    autoSuggestedWorkers: Int,
+    onParallelChecksChange: (Int) -> Unit,
+    onAutoConcurrencyChange: (Boolean) -> Unit,
     onScanLimitChange: (Int) -> Unit,
     onScanAllChange: (Boolean) -> Unit,
     onRefreshInventory: () -> Unit,
@@ -171,6 +176,54 @@ internal fun SettingsScreen(
                         }
                     }
                 }
+                Card(
+                    shape = RoundedCornerShape(14.dp),
+                    colors = CardDefaults.cardColors(containerColor = panel),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        val effectiveWorkers = if (autoConcurrency) autoSuggestedWorkers else parallelChecks
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("Параллельные проверки", color = white, fontSize = 14.sp,
+                                modifier = Modifier.weight(1f))
+                            Text("$effectiveWorkers", color = blue,
+                                fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
+                        }
+                        Slider(
+                            value = parallelChecks.toFloat(),
+                            onValueChange = { onParallelChecksChange(it.roundToInt()) },
+                            valueRange = ScanConcurrencyPolicy.MIN_WORKERS.toFloat()..
+                                ScanConcurrencyPolicy.MAX_WORKERS.toFloat(),
+                            steps = ScanConcurrencyPolicy.MAX_WORKERS -
+                                ScanConcurrencyPolicy.MIN_WORKERS - 1,
+                            enabled = sourceSwitchEnabled && !autoConcurrency
+                        )
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("1 · минимальная нагрузка", color = gray,
+                                fontSize = 11.sp, modifier = Modifier.weight(1f))
+                            Text("30 · максимум", color = gray, fontSize = 11.sp)
+                        }
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("Автоматически", color = white, fontSize = 13.sp,
+                                modifier = Modifier.weight(1f))
+                            Switch(
+                                checked = autoConcurrency,
+                                onCheckedChange = onAutoConcurrencyChange,
+                                enabled = sourceSwitchEnabled
+                            )
+                        }
+                        Text(
+                            if (autoConcurrency) "По устройству: $autoSuggestedWorkers. " +
+                                "TDLib — максимум 6 одновременно."
+                            else "TDLib — максимум 6 проверок одновременно, " +
+                                "даже при более высокой скорости TCP/SOCKS5.",
+                            color = gray, fontSize = 11.sp
+                        )
+                    }
+                }
                 if (inventoryErrors.isNotEmpty()) {
                     Text(
                         "Не удалось обновить часть списков. Показаны последние сохранённые значения.",
@@ -180,8 +233,8 @@ internal fun SettingsScreen(
                 if (!sourceSwitchEnabled) {
                     Text("Останови сканирование, чтобы изменить источники", color = gray, fontSize = 12.sp)
                 }
-                Text("SOCKS5 проверяется через handshake и Telegram TDLib. " +
-                    "Параллельность пока 6 проверок.", color = gray, fontSize = 12.sp)
+                Text("MTProto и SOCKS5 используют общую очередь; " +
+                    "режим скорости применяется при следующем запуске.", color = gray, fontSize = 12.sp)
             }
         }
     }

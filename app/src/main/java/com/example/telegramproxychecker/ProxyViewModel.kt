@@ -29,6 +29,11 @@ class ProxyViewModel(application: Application) : AndroidViewModel(application) {
         private set
     var scanAll by mutableStateOf(ProxySourceSettings.scanAll(application))
         private set
+    var parallelChecks by mutableStateOf(ProxySourceSettings.parallelChecks(application))
+        private set
+    var autoConcurrency by mutableStateOf(ProxySourceSettings.autoConcurrency(application))
+        private set
+    val autoSuggestedWorkers: Int = ScanConcurrencyPolicy.recommended(application)
     internal var inventoryCounts by mutableStateOf<Map<String, SourceInventoryCount>>(emptyMap())
         private set
     var inventoryErrors by mutableStateOf<Map<String, String>>(emptyMap())
@@ -47,6 +52,9 @@ class ProxyViewModel(application: Application) : AndroidViewModel(application) {
     private var loadedOnce = false
 
     init {
+        if (!ScanSession.state.value.running) {
+            ScanSession.repository.configureParallelChecks(ScanConcurrencyPolicy.effective(application))
+        }
         viewModelScope.launch {
             ScanSession.state.collect { current ->
                 proxies = current.proxies
@@ -116,9 +124,26 @@ class ProxyViewModel(application: Application) : AndroidViewModel(application) {
         ProxySourceSettings.setScanAll(getApplication(), value)
     }
 
+    fun updateParallelChecks(value: Int) {
+        if (isLoading || checkingProxyKeys.isNotEmpty()) return
+        val clamped = ScanConcurrencyPolicy.clamp(value)
+        ProxySourceSettings.setParallelChecks(getApplication(), clamped)
+        parallelChecks = clamped
+        if (!autoConcurrency) ScanSession.repository.configureParallelChecks(clamped)
+    }
+
+    fun updateAutoConcurrency(enabled: Boolean) {
+        if (isLoading || checkingProxyKeys.isNotEmpty()) return
+        ProxySourceSettings.setAutoConcurrency(getApplication(), enabled)
+        autoConcurrency = enabled
+        ScanSession.repository.configureParallelChecks(
+            if (enabled) autoSuggestedWorkers else parallelChecks
+        )
+    }
+
     fun updateSocks5SourceEnabled(enabled: Boolean) {
         if (ScanSession.state.value.running || checkingProxyKeys.isNotEmpty()) return
-        // SOCKS5 remains absent from the MTProto scanner until the next stage.
+        // Selection applies to the next shared MTProto/SOCKS5 scan.
         ProxySourceSettings.setSocks5Enabled(getApplication(), enabled)
         socks5SourceEnabled = enabled
     }

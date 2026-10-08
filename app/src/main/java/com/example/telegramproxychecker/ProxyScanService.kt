@@ -101,6 +101,8 @@ class ProxyScanService : Service() {
                         val socks5Enabled = ProxySourceSettings.socks5Enabled(context)
                         val fullLimit = if (ProxySourceSettings.scanAll(context)) null
                             else ProxySourceSettings.scanLimit(context)
+                        // Freeze device/user-selected concurrency for the whole scan.
+                        val parallelChecks = ScanConcurrencyPolicy.effective(context)
                         val socksBatch = if (socks5Enabled) {
                             withContext(Dispatchers.IO) {
                                 val store = ProxySqliteStore.instance(context)
@@ -124,6 +126,7 @@ class ProxyScanService : Service() {
                             mtprotoEnabled = mtprotoEnabled,
                             socksProxies = socksBatch,
                             scanLimit = fullLimit,
+                            parallelChecks = parallelChecks,
                             onUpdate = {
                                 ScanSession.updateProxies(it)
                                 scheduleSave()
