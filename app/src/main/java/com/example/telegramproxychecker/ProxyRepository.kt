@@ -15,7 +15,6 @@ private const val PROXY_LIST_URL =
     "https://raw.githubusercontent.com/SoliSpirit/mtproto/master/all_proxies.txt"
 
 private const val CHECK_FRESH_MS = 30L * 60L * 1000L
-private const val MAX_OLD_FAIL_RECHECK = 20
 private const val PARALLEL_CHECKS = 6
 private const val RESULT_UPDATE_INTERVAL_MS = 200L
 
@@ -174,8 +173,8 @@ class ProxyRepository internal constructor(
             return now - checkedAt in 0 until CHECK_FRESH_MS
         }
 
-        // A forced scan must bypass *both* the freshness window and
-        // MAX_OLD_FAIL_RECHECK. The cap applies only to incremental scans.
+        // Force checks every proxy; ordinary refresh checks all stale entries.
+        // Fresh results are still reused by incremental refreshes.
         if (force) return proxies.distinctBy { it.cacheKey }
 
         val needCheck = proxies.filterNot { isFresh(it) }
@@ -186,12 +185,11 @@ class ProxyRepository internal constructor(
         val newProxies = needCheck
             .filter { it.checkedAt == null }
 
-        // Rotate failures by oldest check. Using source order here permanently starves
-        // proxies beyond the first 20 when the GitHub list stays unchanged.
+        // All stale failures participate; prioritize the oldest first.
+        // No arbitrary per-pass limit now that scans can continue in the background.
         val oldTelegramFail = needCheck
             .filter { it.checkedAt != null && it.telegramOk == false }
             .sortedBy { it.checkedAt }
-            .take(MAX_OLD_FAIL_RECHECK)
 
         val unknown = needCheck
             .filter { it.telegramOk == null }

@@ -20,6 +20,18 @@ data class ScanSnapshot(
     val error: String? = null
 )
 
+/** One progress value shared by the Compose UI and foreground notification. */
+internal data class ScanProgress(
+    val checked: Int,
+    val total: Int,
+    val paused: Boolean
+) {
+    fun label(): String = if (total <= 0) "..." else "$checked/$total"
+}
+
+internal val ScanSnapshot.progress: ScanProgress
+    get() = ScanProgress(checked = checked, total = total, paused = paused)
+
 /** Shared scan state; the service owns the bulk check, the ViewModel only observes. */
 object ScanSession {
     val repository = ProxyRepository()

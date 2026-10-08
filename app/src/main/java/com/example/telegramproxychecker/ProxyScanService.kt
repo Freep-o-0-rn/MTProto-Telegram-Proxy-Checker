@@ -10,7 +10,6 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
-import android.os.SystemClock
 import android.widget.RemoteViews
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
@@ -48,8 +47,9 @@ class ProxyScanService : Service() {
     private var foreground = false
     private var scanJob: Job? = null
     private var saveJob: Job? = null
-    private var notifiedAt = 0L
-    private var lastPaused: Boolean? = null
+    // The same immutable progress value consumed by ProxyViewModel/Compose.
+    // Do not throttle only the notification: that can leave it stale indefinitely.
+    private var lastPublishedProgress: ScanProgress? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -61,14 +61,7 @@ class ProxyScanService : Service() {
         )
         scope.launch {
             ScanSession.state.collect { snapshot ->
-                if (!foreground) return@collect
-                val now = SystemClock.elapsedRealtime()
-                if (snapshot.paused != lastPaused ||
-                    snapshot.total > 0 && snapshot.checked == snapshot.total ||
-                    now - notifiedAt >= 500L
-                ) {
-                    updateNotification(snapshot)
-                }
+                updateNotification(snapshot)
             }
         }
     }
@@ -148,14 +141,15 @@ class ProxyScanService : Service() {
     }
 
     private fun promote() {
-        val notification = buildNotification(ScanSession.state.value)
+        val initial = ScanSession.state.value
+        val notification = buildNotification(initial)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
         } else {
             startForeground(NOTIFICATION_ID, notification)
         }
         foreground = true
-        notifiedAt = SystemClock.elapsedRealtime()
+        lastPublishedProgress = initial.progress
     }
 
     private fun scheduleSave() {
@@ -182,7 +176,7 @@ class ProxyScanService : Service() {
         val action = if (state.paused) RESUME else PAUSE
         val actionIcon = if (state.paused) android.R.drawable.ic_media_play
             else android.R.drawable.ic_media_pause
-        val progressText = if (state.total <= 0) "..." else "${state.checked}/${state.total}"
+        val progressText = state.progress.label()
         val controls = RemoteViews(packageName, R.layout.proxy_scan_notification).apply {
             setTextViewText(R.id.scan_progress_label, progressText)
             setProgressBar(R.id.scan_progress_bar, state.total.coerceAtLeast(1),
@@ -210,10 +204,12 @@ class ProxyScanService : Service() {
 
     private fun updateNotification(state: ScanSnapshot) {
         if (!foreground) return
-        lastPaused = state.paused
-        notifiedAt = SystemClock.elapsedRealtime()
+        val progress = state.progress
+        if (progress == lastPublishedProgress) return
         try {
+            // No timer-based skip: even the last completed result must reach the drawer.
             notifications.notify(NOTIFICATION_ID, buildNotification(state))
+            lastPublishedProgress = progress
         } catch (_: SecurityException) {
             // Denied POST_NOTIFICATIONS does not prevent a user-initiated FGS.
         }

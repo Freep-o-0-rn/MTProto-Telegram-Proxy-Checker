@@ -165,8 +165,9 @@ fun ProxyApp(viewModel: ProxyViewModel) {
     val error = viewModel.error
     val showOnlyAvailable = viewModel.showOnlyAvailable
     val showOnlyFavorites = viewModel.showOnlyFavorites
-    val checkedCount = viewModel.checkedCount
-    val totalCount = viewModel.totalCount
+    val scanProgress = viewModel.scanProgress
+    val checkedCount = scanProgress.checked
+    val totalCount = scanProgress.total
     val checkingProxyKeys = viewModel.checkingProxyKeys
 
     LaunchedEffect(Unit) {
@@ -279,7 +280,7 @@ fun ProxyApp(viewModel: ProxyViewModel) {
                         LoadingProgressCard(
                             checkedCount = checkedCount,
                             totalCount = totalCount,
-                            paused = viewModel.isPaused
+                            paused = scanProgress.paused
                         )
                     }
                 }

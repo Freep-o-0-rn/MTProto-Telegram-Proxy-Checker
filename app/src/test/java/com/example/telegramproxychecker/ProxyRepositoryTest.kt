@@ -101,17 +101,23 @@ class ProxyRepositoryTest {
     }
 
     @Test
-    fun oldFailuresRemainLimitedToTwenty() = runTest {
+    fun allStaleFailuresAreCheckedWithoutTwentyItemLimit() = runTest {
         val cached = (0 until 50).map { testProxy(it).copy(checkedAt = 1L, telegramOk = false) }
         var checks = 0
+        val progress = mutableListOf<Pair<Int, Int>>()
         val repository = ProxyRepository(
             sourceLoader = { cached },
             tcpCheck = { checks++; it.copy(tcpOk = false) },
             telegramCheck = { error("Unexpected Telegram check") },
             nowMillis = { 3_600_000L }
         )
-        repository.loadAndCheckProxies(cached)
-        assertEquals(20, checks)
+        val result = repository.loadAndCheckProxies(cached, onProgress = { done, total ->
+            progress += done to total
+        })
+        assertEquals(50, checks)
+        assertEquals(50, result.size)
+        assertEquals(0 to 50, progress.first())
+        assertEquals(50 to 50, progress.last())
     }
 
     @Test
@@ -168,35 +174,24 @@ class ProxyRepositoryTest {
     }
 
     @Test
-    fun oldFailuresRotateInsteadOfRepeatingFirstTwenty() = runTest {
-        val cache = (0 until 50).map { testProxy(it).copy(checkedAt = 1L, telegramOk = false) }
-        var now = 3_600_000L
-        val checked = mutableListOf<String>()
+    fun incrementalScanChecksOldestFailuresButSkipsFreshOnes() = runTest {
+        val now = 3_600_000L
+        val source = listOf(
+            testProxy(0).copy(checkedAt = 100L, telegramOk = false),
+            testProxy(1).copy(checkedAt = now - 10_000L, telegramOk = false),
+            testProxy(2).copy(checkedAt = 1L, telegramOk = false),
+            testProxy(3).copy(checkedAt = 50L, telegramOk = false)
+        )
+        val attempted = mutableListOf<String>()
         val repository = ProxyRepository(
-            sourceLoader = { cache },
-            tcpCheck = {
-                checked += it.cacheKey
-                it.copy(tcpOk = false, telegramOk = false)
-            },
-            telegramCheck = { error("No Telegram test if TCP is unavailable") },
+            sourceLoader = { source },
+            tcpCheck = { attempted += it.cacheKey; it.copy(tcpOk = false) },
+            telegramCheck = { error("No Telegram test on a failed TCP precheck") },
             nowMillis = { now }
         )
-
-        val first = repository.loadAndCheckProxies(cache)
-        val firstGroup = checked.toList()
-        assertEquals(20, firstGroup.size)
-
-        // All 20 first failures are stale again after thirty minutes.
-        // The thirty untouched failures are older and must take priority.
-        now += 1_800_001L
-        checked.clear()
-        repository.loadAndCheckProxies(first)
-        val secondGroup = checked.toList()
-        assertEquals(20, secondGroup.size)
-        assertTrue(firstGroup.toSet().intersect(secondGroup.toSet()).isEmpty())
-        assertEquals(40, (firstGroup + secondGroup).toSet().size)
+        repository.loadAndCheckProxies(source)
+        assertEquals(listOf(source[2], source[3], source[0]).map { it.cacheKey }, attempted)
     }
-
 
     @Test
     fun forcedScanChecksEveryCachedFailure() = runTest {
