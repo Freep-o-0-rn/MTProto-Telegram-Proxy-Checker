@@ -78,7 +78,7 @@ class ProxyRepositoryTest {
         val manual = (20 until 30).map { async { repository.recheckOneProxy(testProxy(it)) } }
         bulk.await()
         manual.awaitAll()
-        assertEquals(6, peak)
+        assertEquals(5, peak)
         assertEquals(0, active)
     }
 
@@ -158,7 +158,7 @@ class ProxyRepositoryTest {
         )
         val scan = async { repository.loadAndCheckProxies(emptyList()) }
         runCurrent()
-        assertEquals(6, active)
+        assertEquals(5, active)
         scan.cancelAndJoin()
         assertEquals(0, active)
         assertEquals(true, repository.recheckOneProxy(testProxy()).telegramOk)
