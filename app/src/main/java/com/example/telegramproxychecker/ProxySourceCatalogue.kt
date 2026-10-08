@@ -1,10 +1,10 @@
 package com.example.telegramproxychecker
 
 /**
- * Settings-screen catalogue only. This does not configure the runtime scanner.
- * The existing MTProto source remains hardcoded in ProxyRepository for now.
+ * Source metadata used by settings and background inventory retrieval.
+ * The runtime scan remains MTProto-only until the separate SOCKS5 checker ships.
  */
-internal enum class ProxySourceProtocol(val label: String) {
+enum class ProxySourceProtocol(val label: String) {
     MTPROTO("MTProto"),
     SOCKS5("SOCKS5"),
     HTTP("HTTP"),
