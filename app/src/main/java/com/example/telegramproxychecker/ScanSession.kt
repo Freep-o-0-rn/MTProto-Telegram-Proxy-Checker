@@ -2,6 +2,7 @@ package com.example.telegramproxychecker
 
 import android.content.Context
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -71,6 +72,32 @@ object ScanSession {
             }
         }
     }
+
+    /** Flush-safe maintenance: the same diskMutex serializes pending cache writes. */
+    internal suspend fun clearProxyData(context: Context): ProxyCleanupResult =
+        clearProxyData {
+            withContext(Dispatchers.IO) {
+                ProxySqliteStore.instance(context.applicationContext).clearProxyData()
+            }
+        }
+
+    // A test seam for asserting state synchronization without Android SQLite.
+    internal suspend fun clearProxyData(clearStorage: suspend () -> ProxyCleanupResult): ProxyCleanupResult =
+        diskMutex.withLock {
+            check(!mutableState.value.running) {
+                "Остановите сканирование перед очисткой базы"
+            }
+            // Cancellation after SQLite DELETE must not leave old runtime rows
+            // to be reinserted by a delayed saveCache() job.
+            withContext(NonCancellable) {
+                val result = clearStorage()
+                mutableState.value = ScanSnapshot()
+                lastPersisted = emptyMap()
+                cacheLoaded = true
+                resumeGate.value = true
+                result
+            }
+        }
 
     fun start() {
         resumeGate.value = true
