@@ -73,7 +73,7 @@ object ScanSession {
     }
 
     /** Flush-safe maintenance: the same diskMutex serializes pending cache writes. */
-    suspend fun clearProxyData(context: Context): ProxyCleanupResult =
+    internal suspend fun clearProxyData(context: Context): ProxyCleanupResult =
         clearProxyData {
             withContext(Dispatchers.IO) {
                 ProxySqliteStore.instance(context.applicationContext).clearProxyData()
