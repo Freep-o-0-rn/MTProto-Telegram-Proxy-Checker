@@ -44,8 +44,8 @@ class ProxyRepository internal constructor(
         force: Boolean = false,
         onUpdate: (List<MtProxy>) -> Unit = {},
         beforeCheck: suspend () -> Unit = {},
-        onProgress: (checked: Int, total: Int) -> Unit = { _, _ -> },
-        tcpOkOnly: Boolean = false
+        tcpOkOnly: Boolean = false,
+        onProgress: (checked: Int, total: Int) -> Unit = { _, _ -> }
     ): List<MtProxy> {
         val sourceProxies = try {
             val githubProxies = loadProxies()
