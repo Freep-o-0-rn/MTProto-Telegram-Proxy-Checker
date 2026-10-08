@@ -12,8 +12,8 @@ android {
         applicationId = "com.example.telegramproxychecker"
         minSdk = 24
         targetSdk = 36
-        versionCode = 1100
-        versionName = "1.1.0"
+        versionCode = 1101
+        versionName = "1.1.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
