@@ -2,6 +2,10 @@ package com.example.telegramproxychecker
 
 import android.content.Context
 import android.content.Intent
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
+import androidx.activity.result.contract.ActivityResultContracts
 import android.net.Uri
 import android.os.Bundle
 import android.widget.Toast
@@ -68,11 +72,24 @@ private val TextMuted = Color(0xFFB8C7D9)
 class MainActivity : ComponentActivity() {
 
     private lateinit var viewModel: ProxyViewModel
+    private val notificationPermission = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { /* The scan can run even if the notification is hidden by Android. */ }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
         viewModel = ViewModelProvider(this)[ProxyViewModel::class.java]
+
+        if (Build.VERSION.SDK_INT >= 33 &&
+            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) {
+            val prefs = getSharedPreferences("notification_permission", MODE_PRIVATE)
+            if (!prefs.getBoolean("asked", false)) {
+                prefs.edit().putBoolean("asked", true).apply()
+                notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+            }
+        }
 
         setContent {
             ProxyApp(viewModel)
@@ -241,7 +258,8 @@ fun ProxyApp(viewModel: ProxyViewModel) {
                     if (isLoading) {
                         LoadingProgressCard(
                             checkedCount = checkedCount,
-                            totalCount = totalCount
+                            totalCount = totalCount,
+                            paused = viewModel.isPaused
                         )
                     }
                 }
@@ -601,9 +619,12 @@ fun RecheckButton(
 @Composable
 fun LoadingProgressCard(
     checkedCount: Int,
-    totalCount: Int
+    totalCount: Int,
+    paused: Boolean = false
 ) {
-    val progressText = if (totalCount > 0) {
+    val progressText = if (paused) {
+        "Пауза · проверено $checkedCount из $totalCount"
+    } else if (totalCount > 0) {
         "Проверено $checkedCount из $totalCount"
     } else {
         "Загрузка списка с GitHub..."

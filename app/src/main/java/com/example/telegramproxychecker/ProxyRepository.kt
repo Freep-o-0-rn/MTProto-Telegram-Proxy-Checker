@@ -44,6 +44,7 @@ class ProxyRepository internal constructor(
         cachedProxies: List<MtProxy>,
         force: Boolean = false,
         onUpdate: (List<MtProxy>) -> Unit = {},
+        beforeCheck: suspend () -> Unit = {},
         onProgress: (checked: Int, total: Int) -> Unit = { _, _ -> }
     ): List<MtProxy> {
         val sourceProxies = try {
@@ -78,7 +79,10 @@ class ProxyRepository internal constructor(
             // Fixed worker count instead of allocating one suspended async per proxy.
             repeat(minOf(PARALLEL_CHECKS, queue.size)) {
                 launch {
-                    for (proxy in pending) completed.send(checkSingleProxy(proxy))
+                    for (proxy in pending) {
+                        beforeCheck()
+                        completed.send(checkSingleProxy(proxy))
+                    }
                 }
             }
 
@@ -86,8 +90,9 @@ class ProxyRepository internal constructor(
             var lastUpdate = nowMillis()
             var lastList = emptyList<MtProxy>()
             // One collector owns progress and snapshots, even on a multi-threaded caller.
-            repeat(queue.size) { index ->
-                val result = completed.receive()
+            try {
+                repeat(queue.size) { index ->
+                    val result = completed.receive()
                 current[result.cacheKey] = result
                 onProgress(index + 1, queue.size)
                 val now = nowMillis()
@@ -97,7 +102,12 @@ class ProxyRepository internal constructor(
                     lastUpdate = now
                 }
             }
-            lastList
+                lastList
+            } finally {
+                // Publish the latest completed results even if Stop cancels the collector.
+                val finalSnapshot = sortProxies(current.values.toList())
+                if (lastList != finalSnapshot) onUpdate(finalSnapshot)
+            }
         }
     }
 
