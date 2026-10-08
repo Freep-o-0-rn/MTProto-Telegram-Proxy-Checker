@@ -71,6 +71,33 @@ class ProxyViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun pauseScan() {
+        if (!ScanSession.state.value.running || ScanSession.state.value.paused) return
+        try {
+            ProxyScanService.pause(getApplication())
+        } catch (e: Exception) {
+            ScanSession.setError(e.message ?: "Не удалось приостановить проверку")
+        }
+    }
+
+    fun resumeScan() {
+        if (!ScanSession.state.value.running || !ScanSession.state.value.paused) return
+        try {
+            ProxyScanService.resume(getApplication())
+        } catch (e: Exception) {
+            ScanSession.setError(e.message ?: "Не удалось возобновить проверку")
+        }
+    }
+
+    fun stopScan() {
+        if (!ScanSession.state.value.running) return
+        try {
+            ProxyScanService.stop(getApplication())
+        } catch (e: Exception) {
+            ScanSession.setError(e.message ?: "Не удалось остановить проверку")
+        }
+    }
+
     fun recheckProxy(proxy: MtProxy) {
         if (ScanSession.state.value.running || checkingProxyKeys.contains(proxy.cacheKey)) return
         checkingProxyKeys = checkingProxyKeys + proxy.cacheKey
