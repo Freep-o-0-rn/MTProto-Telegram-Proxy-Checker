@@ -15,7 +15,6 @@ private const val PROXY_LIST_URL =
     "https://raw.githubusercontent.com/SoliSpirit/mtproto/master/all_proxies.txt"
 
 private const val CHECK_FRESH_MS = 30L * 60L * 1000L
-private const val PARALLEL_CHECKS = 6
 private const val RESULT_UPDATE_INTERVAL_MS = 200L
 
 class ProxyRepository internal constructor(
@@ -32,7 +31,12 @@ class ProxyRepository internal constructor(
     )
 
     // Shared by bulk and individual checks; extra taps cannot bypass the limit.
-    private val checkSlots = Semaphore(PARALLEL_CHECKS)
+    private val checkSlots = AdjustableConcurrencyGate(ScanConcurrencyPolicy.DEFAULT_WORKERS)
+    private val telegramSlots = Semaphore(ScanConcurrencyPolicy.MAX_TDLIB_CHECKS)
+
+    fun configureParallelChecks(value: Int) {
+        checkSlots.configure(value)
+    }
 
     suspend fun loadProxies(): List<MtProxy> = sourceLoader()
 
@@ -49,8 +53,13 @@ class ProxyRepository internal constructor(
         mtprotoEnabled: Boolean = true,
         socksProxies: List<MtProxy> = emptyList(),
         scanLimit: Int? = null,
+        parallelChecks: Int = ScanConcurrencyPolicy.DEFAULT_WORKERS,
         onProgress: (checked: Int, total: Int) -> Unit = { _, _ -> }
     ): List<MtProxy> {
+        // One value is frozen for the entire run. This gate is shared with
+        // manual rechecks and never exceeds the configured global limit.
+        val workerCount = ScanConcurrencyPolicy.clamp(parallelChecks)
+        configureParallelChecks(workerCount)
         val sourceProxies = try {
             val githubProxies = if (mtprotoEnabled) loadProxies() else emptyList()
             mergeGithubWithCache(githubProxies + socksProxies, cachedProxies)
@@ -87,14 +96,14 @@ class ProxyRepository internal constructor(
         }
 
         return coroutineScope {
-            val pending = Channel<MtProxy>(PARALLEL_CHECKS)
-            val completed = Channel<MtProxy>(PARALLEL_CHECKS)
+            val pending = Channel<MtProxy>(workerCount)
+            val completed = Channel<MtProxy>(workerCount)
             launch {
                 for (proxy in queue) pending.send(proxy)
                 pending.close()
             }
             // Fixed worker count instead of allocating one suspended async per proxy.
-            repeat(minOf(PARALLEL_CHECKS, queue.size)) {
+            repeat(minOf(workerCount, queue.size)) {
                 launch {
                     for (proxy in pending) {
                         beforeCheck()
@@ -140,7 +149,10 @@ class ProxyRepository internal constructor(
 
         val telegramChecked = if (tcpChecked.tcpOk == true ||
             (verifyDespiteTcpFailure && proxy.protocol == ProxySourceProtocol.MTPROTO)) {
-            telegramCheck(tcpChecked)
+            // Each proxy owns a TDLib client and fans out to five DC requests.
+            // Cap TDLib separately: faster prechecks must not amplify native
+            // TestProxy concurrency beyond the previously tested six clients.
+            telegramSlots.withPermit { telegramCheck(tcpChecked) }
         } else {
             tcpChecked
         }
