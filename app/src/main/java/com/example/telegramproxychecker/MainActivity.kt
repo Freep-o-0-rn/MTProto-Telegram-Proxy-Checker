@@ -134,7 +134,12 @@ fun ProxyApp(viewModel: ProxyViewModel) {
     BackHandler(enabled = showSettings) { showSettings = false }
 
     if (showSettings) {
-        SettingsScreen(onBack = { showSettings = false })
+        SettingsScreen(
+            onBack = { showSettings = false },
+            mtprotoEnabled = viewModel.mtprotoSourceEnabled,
+            sourceSwitchEnabled = !viewModel.isLoading && viewModel.checkingProxyKeys.isEmpty(),
+            onMtprotoEnabledChange = viewModel::setMtprotoSourceEnabled
+        )
     } else {
         ProxyDashboardScreen(
             viewModel = viewModel,

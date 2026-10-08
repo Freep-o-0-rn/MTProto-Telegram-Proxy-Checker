@@ -4,6 +4,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -117,9 +118,9 @@ internal fun ProxyDashboardScreen(
                 },
                 actions = {
                     IconButton(
-                        onClick = { viewModel.refresh() },
-                        enabled = !isScanning && pendingSingle.isEmpty(),
-                        modifier = Modifier.semantics { contentDescription = "Обычное обновление прокси" }
+                        onClick = { viewModel.refresh(tcpOkOnly = true) },
+                        enabled = !isScanning && pendingSingle.isEmpty() && viewModel.mtprotoSourceEnabled && proxies.any { it.tcpOk == true },
+                        modifier = Modifier.semantics { contentDescription = "Проверка доступных по TCP прокси" }
                     ) {
                         Text("↻", fontSize = 26.sp, color = if (isScanning) mutedText else blue)
                     }
@@ -130,16 +131,16 @@ internal fun ProxyDashboardScreen(
                         ) { Text("⋮", fontSize = 25.sp, color = mainText) }
                         DropdownMenu(expanded = moreOpen, onDismissRequest = { moreOpen = false }) {
                             DropdownMenuItem(
-                                text = { Text("Обычное обновление") },
-                                enabled = !isScanning && pendingSingle.isEmpty(),
+                                text = { Text("Проверка") },
+                                enabled = !isScanning && pendingSingle.isEmpty() && viewModel.mtprotoSourceEnabled && proxies.any { it.tcpOk == true },
                                 onClick = {
                                     moreOpen = false
-                                    viewModel.refresh()
+                                    viewModel.refresh(tcpOkOnly = true)
                                 }
                             )
                             DropdownMenuItem(
-                                text = { Text("Полная Telegram-проверка") },
-                                enabled = !isScanning && pendingSingle.isEmpty(),
+                                text = { Text("Полная проверка") },
+                                enabled = !isScanning && pendingSingle.isEmpty() && viewModel.mtprotoSourceEnabled,
                                 onClick = {
                                     moreOpen = false
                                     viewModel.refresh(force = true)
@@ -150,13 +151,6 @@ internal fun ProxyDashboardScreen(
                                 onClick = {
                                     moreOpen = false
                                     onCopyDiagnostics()
-                                }
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Настройки") },
-                                onClick = {
-                                    moreOpen = false
-                                    onOpenSettings()
                                 }
                             )
                         }
@@ -330,7 +324,7 @@ private fun ScanProgressStrip(
         Row(verticalAlignment = Alignment.CenterVertically) {
             val label = when {
                 running && paused -> "Пауза"
-                running -> "Сканирование в фоне"
+                running -> "Сканирование"
                 total > 0 && checked == total -> "Проверка завершена"
                 total > 0 -> "Последний проход"
                 else -> "Готов к проверке"
@@ -515,7 +509,7 @@ private fun CompactProxyCard(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Row(
-                modifier = Modifier.weight(1f).clickable(onClick = onToggleDetails).padding(vertical = 9.dp),
+                modifier = Modifier.weight(1f).clip(RoundedCornerShape(10.dp)).clickable(onClick = onToggleDetails).padding(vertical = 9.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text("●", color = statusColor, fontSize = 14.sp)
