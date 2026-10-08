@@ -78,7 +78,7 @@ class ProxyViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun setMtprotoSourceEnabled(enabled: Boolean) {
+    fun updateMtprotoSourceEnabled(enabled: Boolean) {
         if (ScanSession.state.value.running || checkingProxyKeys.isNotEmpty()) return
         ProxySourceSettings.setMtprotoEnabled(getApplication(), enabled)
         mtprotoSourceEnabled = enabled
