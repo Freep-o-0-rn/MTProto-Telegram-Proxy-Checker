@@ -538,7 +538,7 @@ private fun CompactProxyCard(
     val isUnstable = proxy.isUnstableTelegramOk
     val skippedTelegram = proxy.tcpOk == false && proxy.telegramError == "TCP недоступен"
     val status = when {
-        isUnstable -> "Telegram OK · Нестабильно"
+        isUnstable -> "Telegram OK"
         isWorking -> "Telegram OK"
         skippedTelegram -> "Не проверен · TCP FAIL"
         proxy.telegramError?.startsWith("SOCKS5:") == true -> "SOCKS5 FAIL"
@@ -580,11 +580,19 @@ private fun CompactProxyCard(
                     Text(
                         ":${proxy.port} · ${proxy.protocol.label} · $status" +
                             (if (isWorking) " · ${formatDashboardPing(proxy.telegramPingMs)}" else ""),
-                        color = if (isUnstable) yellow else if (isWorking) green else mutedText,
+                        color = if (isWorking) green else mutedText,
                         fontSize = 10.sp,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
+                    if (isUnstable) {
+                        Text(
+                            "⚠ Нестабильно · TCP FAIL",
+                            color = yellow,
+                            fontSize = 10.sp,
+                            maxLines = 1
+                        )
+                    }
                 }
                 Spacer(Modifier.width(3.dp))
                 Text(if (expanded) "⌃" else "⌄", color = mutedText, fontSize = 17.sp)
