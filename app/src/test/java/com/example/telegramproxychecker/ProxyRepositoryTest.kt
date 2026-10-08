@@ -376,11 +376,16 @@ class ProxyRepositoryTest {
         val previous = testProxy(410).copy(
             tcpOk = true, telegramOk = true, telegramPingMs = 130, checkedAt = 10L
         )
-        val newFromFeed = testProxy(411)
+        val newFromFeed = testProxy(411).copy(tcpOk = true, telegramOk = false)
         val repo = ProxyRepository(
             sourceLoader = { error("Explicit inventory must be used") },
             tcpCheck = { it.copy(tcpOk = true) },
-            telegramCheck = { it.copy(telegramOk = true, telegramPingMs = 75) },
+            telegramCheck = {
+                if (it.cacheKey == previous.cacheKey)
+                    it.copy(telegramOk = false, telegramPingMs = null,
+                        telegramError = "TDLib timeout")
+                else it.copy(telegramOk = true, telegramPingMs = 75)
+            },
             nowMillis = { 20L }
         )
         val output = repo.loadAndCheckProxies(
