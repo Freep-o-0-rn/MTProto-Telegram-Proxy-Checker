@@ -131,14 +131,23 @@ fun ProxyApp(viewModel: ProxyViewModel) {
     val context = LocalContext.current
 
     LaunchedEffect(Unit) { viewModel.loadOnce() }
+    LaunchedEffect(showSettings) {
+        if (showSettings) viewModel.refreshSourceInventory()
+    }
     BackHandler(enabled = showSettings) { showSettings = false }
 
     if (showSettings) {
         SettingsScreen(
             onBack = { showSettings = false },
             mtprotoEnabled = viewModel.mtprotoSourceEnabled,
+            socks5Enabled = viewModel.socks5SourceEnabled,
             sourceSwitchEnabled = !viewModel.isLoading && viewModel.checkingProxyKeys.isEmpty(),
-            onMtprotoEnabledChange = viewModel::updateMtprotoSourceEnabled
+            inventoryCounts = viewModel.inventoryCounts,
+            inventoryErrors = viewModel.inventoryErrors,
+            inventoryRefreshing = viewModel.inventoryRefreshing,
+            onRefreshInventory = viewModel::refreshSourceInventory,
+            onMtprotoEnabledChange = viewModel::updateMtprotoSourceEnabled,
+            onSocks5EnabledChange = viewModel::updateSocks5SourceEnabled
         )
     } else {
         ProxyDashboardScreen(
