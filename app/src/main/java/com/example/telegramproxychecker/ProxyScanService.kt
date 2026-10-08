@@ -11,6 +11,7 @@ import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
 import android.os.SystemClock
+import android.widget.RemoteViews
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import kotlinx.coroutines.CancellationException
@@ -177,21 +178,22 @@ class ProxyScanService : Service() {
                 .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
-        val (action, icon, label) = if (state.paused) {
-            Triple(RESUME, android.R.drawable.ic_media_play, "Возобновить")
-        } else {
-            Triple(PAUSE, android.R.drawable.ic_media_pause, "Пауза")
-        }
-        val progressText = when {
-            state.paused -> "Пауза · ${state.checked}/${state.total}"
-            state.total <= 0 -> "Загрузка списка..."
-            else -> "${state.checked}/${state.total}"
+        val action = if (state.paused) RESUME else PAUSE
+        val actionIcon = if (state.paused) android.R.drawable.ic_media_play
+            else android.R.drawable.ic_media_pause
+        val progressText = if (state.total <= 0) "..." else "${state.checked}/${state.total}"
+        val controls = RemoteViews(packageName, R.layout.proxy_scan_notification).apply {
+            setTextViewText(R.id.scan_progress_label, progressText)
+            setProgressBar(R.id.scan_progress_bar, state.total.coerceAtLeast(1),
+                state.checked, state.total <= 0)
+            setImageViewResource(R.id.scan_pause_resume, actionIcon)
+            setOnClickPendingIntent(R.id.scan_pause_resume, actionPendingIntent(action, 1))
+            setOnClickPendingIntent(R.id.scan_stop, actionPendingIntent(STOP, 2))
         }
         return NotificationCompat.Builder(this, CHANNEL)
             .setSmallIcon(android.R.drawable.stat_notify_sync)
             .setContentTitle("Сканирование Telegram-прокси")
             .setContentText(progressText)
-            .setProgress(state.total.coerceAtLeast(0), state.checked, state.total == 0)
             .setContentIntent(open)
             .setOnlyAlertOnce(true)
             .setOngoing(true)
@@ -199,8 +201,9 @@ class ProxyScanService : Service() {
             .setShowWhen(false)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
-            .addAction(icon, label, actionPendingIntent(action, 1))
-            .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Остановить", actionPendingIntent(STOP, 2))
+            .setStyle(NotificationCompat.DecoratedCustomViewStyle())
+            .setCustomContentView(controls)
+            .setCustomBigContentView(controls)
             .build()
     }
 
