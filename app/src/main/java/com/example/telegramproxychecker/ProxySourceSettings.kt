@@ -62,7 +62,7 @@ internal object ProxySourceSettings {
 
     fun scanLimit(context: Context): Int =
         context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .getInt(LIMIT, 500).coerceAtLeast(1)
+            .getInt(LIMIT, 1500).coerceAtLeast(1)
 
     fun scanAll(context: Context): Boolean =
         context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
