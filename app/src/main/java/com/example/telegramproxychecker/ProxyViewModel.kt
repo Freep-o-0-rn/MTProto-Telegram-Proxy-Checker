@@ -46,6 +46,10 @@ class ProxyViewModel(application: Application) : AndroidViewModel(application) {
         private set
     var inventoryRefreshing by mutableStateOf(false)
         private set
+    var clearingProxyData by mutableStateOf(false)
+        private set
+    var proxyCleanupMessage by mutableStateOf<String?>(null)
+        private set
     private val inventoryRepository = ProxySourceInventory(application)
 
     var showOnlyAvailable by mutableStateOf(false)
@@ -56,6 +60,8 @@ class ProxyViewModel(application: Application) : AndroidViewModel(application) {
         private set
 
     private var loadedOnce = false
+    // Prevent an old asynchronous count query from repainting stale totals.
+    private var inventoryGeneration = 0
 
     init {
         if (!ScanSession.state.value.running) {
@@ -98,7 +104,8 @@ class ProxyViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun refresh(force: Boolean = false, tcpOkOnly: Boolean = false) {
-        if (ScanSession.state.value.running || checkingProxyKeys.isNotEmpty()) return
+        if (ScanSession.state.value.running || checkingProxyKeys.isNotEmpty() ||
+            clearingProxyData) return
         if (!mtprotoSourceEnabled && !socks5SourceEnabled) {
             ScanSession.setError("Включи хотя бы один источник в настройках")
             return
@@ -121,11 +128,14 @@ class ProxyViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun refreshUniqueSelectedCount() {
         val ids = enabledSourceIds
+        val generation = ++inventoryGeneration
         selectedUniqueCount = null
         viewModelScope.launch {
             try {
                 val count = inventoryRepository.uniqueSelectedCount(ids)
-                if (ids == enabledSourceIds) selectedUniqueCount = count
+                if (generation == inventoryGeneration && ids == enabledSourceIds) {
+                    selectedUniqueCount = count
+                }
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {
@@ -164,7 +174,7 @@ class ProxyViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun refreshSourceInventory() {
-        if (inventoryRefreshing) return
+        if (inventoryRefreshing || clearingProxyData) return
         inventoryRefreshing = true
         viewModelScope.launch {
             try {
@@ -180,6 +190,35 @@ class ProxyViewModel(application: Application) : AndroidViewModel(application) {
                 inventoryErrors = mapOf("sources" to (e.message ?: "Ошибка загрузки источников"))
             } finally {
                 inventoryRefreshing = false
+            }
+        }
+    }
+
+    /** User-confirmed destructive maintenance, never interleaved with a scan or import. */
+    fun clearProxyData() {
+        if (clearingProxyData || inventoryRefreshing || isLoading ||
+            ScanSession.state.value.running || checkingProxyKeys.isNotEmpty()) return
+        clearingProxyData = true
+        proxyCleanupMessage = null
+        viewModelScope.launch {
+            try {
+                val result = ScanSession.clearProxyData(getApplication())
+                // Drop both the live list and metadata; no scheduled save may revive them.
+                inventoryGeneration++
+                inventoryCounts = emptyMap()
+                inventoryErrors = emptyMap()
+                selectedUniqueCount = null
+                proxyCleanupMessage = "Удалено: ${result.checkedProxies} проверенных, " +
+                    "${result.sourceEntries} записей источников." +
+                    if (result.compacted) " SQLite сжата."
+                    else " Не удалось сжать файл SQLite."
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                proxyCleanupMessage = "Ошибка очистки: " +
+                    (e.message ?: "не удалось удалить сохранённые прокси")
+            } finally {
+                clearingProxyData = false
             }
         }
     }
@@ -212,7 +251,8 @@ class ProxyViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun recheckProxy(proxy: MtProxy) {
-        if (ScanSession.state.value.running || checkingProxyKeys.contains(proxy.cacheKey)) return
+        if (ScanSession.state.value.running || clearingProxyData ||
+            checkingProxyKeys.contains(proxy.cacheKey)) return
         checkingProxyKeys = checkingProxyKeys + proxy.cacheKey
         viewModelScope.launch {
             try {
@@ -233,6 +273,7 @@ class ProxyViewModel(application: Application) : AndroidViewModel(application) {
     fun toggleOnlyFavorites() { showOnlyFavorites = !showOnlyFavorites }
 
     fun toggleFavorite(proxy: MtProxy) {
+        if (clearingProxyData) return
         ScanSession.toggleFavorite(proxy)
         viewModelScope.launch { ScanSession.saveCache(getApplication()) }
     }

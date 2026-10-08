@@ -14,6 +14,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Card
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.IconButton
@@ -21,11 +22,16 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.Slider
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
@@ -64,8 +70,13 @@ internal fun SettingsScreen(
     onScanLimitChange: (Int) -> Unit,
     onScanAllChange: (Boolean) -> Unit,
     onRefreshInventory: () -> Unit,
-    onSourceEnabledChange: (String, Boolean) -> Unit
+    onSourceEnabledChange: (String, Boolean) -> Unit,
+    clearingProxyData: Boolean,
+    proxyCleanupMessage: String?,
+    onClearProxyData: () -> Unit
 ) {
+    var confirmClear by remember { mutableStateOf(false) }
+    val canClear = sourceSwitchEnabled && !inventoryRefreshing && !clearingProxyData
     val selected = ProxySourceCatalogue.entries.filter { it.id in enabledSourceIds }
     val allLoaded = selected.all { inventoryCounts.containsKey(it.id) } &&
         selectedUniqueCount != null
@@ -112,6 +123,7 @@ internal fun SettingsScreen(
                         status = if (enabled) "Включён" else "Выключен",
                         count = count?.count,
                         fetchedAt = count?.fetchedAt,
+                        loading = inventoryRefreshing,
                         stale = source.id in inventoryErrors,
                         onCheckedChange = { onSourceEnabledChange(source.id, it) }
                     )
@@ -227,8 +239,78 @@ internal fun SettingsScreen(
                 }
                 Text("MTProto и SOCKS5 используют общую очередь; " +
                     "режим скорости применяется при следующем запуске.", color = gray, fontSize = 12.sp)
+
+                // Deliberately the final item on the settings screen.
+                Card(
+                    shape = RoundedCornerShape(14.dp),
+                    colors = CardDefaults.cardColors(containerColor = panel),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text("Хранилище прокси", color = white,
+                            fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                        Text(
+                            "Удалить все сохранённые прокси, результаты проверки и списки источников. " +
+                                "После этого источники загрузятся заново при следующей проверке. " +
+                                "Настройки сохранятся.",
+                            color = gray, fontSize = 12.sp
+                        )
+                        OutlinedButton(
+                            onClick = { confirmClear = true },
+                            enabled = canClear
+                        ) {
+                            Text(
+                                if (clearingProxyData) "Очистка базы…" else "Очистить базу прокси",
+                                color = if (canClear) Color(0xFFFF8585) else gray,
+                                fontSize = 13.sp
+                            )
+                        }
+                        if (!canClear) {
+                            Text(
+                                "Очистка доступна после окончания проверки и обновления источников.",
+                                color = gray, fontSize = 11.sp
+                            )
+                        }
+                        proxyCleanupMessage?.let { message ->
+                            Text(
+                                message,
+                                color = if (message.startsWith("Ошибка")) Color(0xFFFF8585) else green,
+                                fontSize = 12.sp
+                            )
+                        }
+                    }
+                }
             }
         }
+    }
+    if (confirmClear) {
+        AlertDialog(
+            onDismissRequest = { confirmClear = false },
+            title = { Text("Очистить базу прокси?") },
+            text = {
+                Text(
+                    "Будут удалены все проверенные прокси, избранное, результаты TCP/Telegram, " +
+                        "загруженные списки и история сканирования. " +
+                        "Переключатели источников и настройки скорости останутся без изменений. " +
+                        "Восстановить удалённые результаты нельзя."
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = canClear,
+                    onClick = {
+                        confirmClear = false
+                        onClearProxyData()
+                    }
+                ) { Text("Удалить", color = Color(0xFFFF8585)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmClear = false }) { Text("Отмена") }
+            }
+        )
     }
 }
 
@@ -240,6 +322,7 @@ private fun SourceToggleRow(
     status: String,
     count: Int?,
     fetchedAt: Long?,
+    loading: Boolean,
     stale: Boolean,
     onCheckedChange: (Boolean) -> Unit
 ) {
@@ -264,7 +347,7 @@ private fun SourceToggleRow(
                     maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text(
                     when {
-                        count == null -> "Адресов: загрузка…"
+                        count == null -> if (loading) "Адресов: загрузка…" else "Адресов: нет данных"
                         stale -> "Адресов: $count · из кэша"
                         else -> "Адресов: $count"
                     },

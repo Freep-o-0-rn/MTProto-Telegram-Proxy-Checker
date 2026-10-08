@@ -150,7 +150,10 @@ fun ProxyApp(viewModel: ProxyViewModel) {
             onScanLimitChange = viewModel::updateScanLimit,
             onScanAllChange = viewModel::updateScanAll,
             onRefreshInventory = viewModel::refreshSourceInventory,
-            onSourceEnabledChange = viewModel::updateSourceEnabled
+            onSourceEnabledChange = viewModel::updateSourceEnabled,
+            clearingProxyData = viewModel.clearingProxyData,
+            proxyCleanupMessage = viewModel.proxyCleanupMessage,
+            onClearProxyData = viewModel::clearProxyData
         )
     } else {
         ProxyDashboardScreen(

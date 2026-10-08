@@ -72,6 +72,29 @@ object ScanSession {
         }
     }
 
+    /** Flush-safe maintenance: the same diskMutex serializes pending cache writes. */
+    suspend fun clearProxyData(context: Context): ProxyCleanupResult =
+        clearProxyData {
+            withContext(Dispatchers.IO) {
+                ProxySqliteStore.instance(context.applicationContext).clearProxyData()
+            }
+        }
+
+    // A test seam for asserting state synchronization without Android SQLite.
+    internal suspend fun clearProxyData(clearStorage: suspend () -> ProxyCleanupResult): ProxyCleanupResult =
+        diskMutex.withLock {
+            check(!mutableState.value.running) {
+                "Остановите сканирование перед очисткой базы"
+            }
+            val result = clearStorage()
+            // Reset in-memory snapshots and differential-save bookkeeping together.
+            mutableState.value = ScanSnapshot()
+            lastPersisted = emptyMap()
+            cacheLoaded = true
+            resumeGate.value = true
+            result
+        }
+
     fun start() {
         resumeGate.value = true
         mutableState.update { it.copy(running = true, paused = false, checked = 0, total = 0, error = null) }

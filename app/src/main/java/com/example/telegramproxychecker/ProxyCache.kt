@@ -29,6 +29,13 @@ internal data class SourceScanCursor(
     val pass: Long
 )
 
+/** Rows deleted from persistent proxy data; source toggles and scan settings survive. */
+internal data class ProxyCleanupResult(
+    val checkedProxies: Int,
+    val sourceEntries: Int,
+    val compacted: Boolean
+)
+
 /** Shared open DB, not a new SQLite connection on every 200 ms cache update. */
 internal class ProxySqliteStore private constructor(context: Context) :
     SQLiteOpenHelper(context.applicationContext, "proxy_checker.sqlite", null, 1) {
@@ -153,6 +160,44 @@ internal class ProxySqliteStore private constructor(context: Context) :
         // Database commit happened before removing the legacy JSON.
         // A failed prefs commit is safe; db_meta prevents duplicate import.
         if (raw != null) legacyPrefs.edit().remove("proxies_json").commit()
+    }
+
+    /**
+     * Clear every proxy-bearing SQLite table in a single transaction. Preserve
+     * configuration stored in proxy_source_settings. Invalidate the legacy
+     * SharedPreferences migration marker so old proxies cannot come back.
+     * VACUUM outside the transaction returns unused SQLite pages to storage.
+     */
+    @Synchronized
+    fun clearProxyData(): ProxyCleanupResult {
+        val db = writableDatabase
+        var checked = 0
+        var sourceEntries = 0
+        db.beginTransaction()
+        try {
+            checked = db.delete("checked_proxies", null, null)
+            sourceEntries = db.delete("source_entries", null, null)
+            db.delete("source_inventory", null, null)
+            db.delete("source_cursors", null, null)
+            // Mark the legacy cache imported without needing to parse old data.
+            val meta = ContentValues().apply {
+                put("meta_key", "legacy_imported")
+                put("meta_value", "1")
+            }
+            db.insertWithOnConflict("db_meta", null, meta, SQLiteDatabase.CONFLICT_REPLACE)
+            db.setTransactionSuccessful()
+        } finally {
+            db.endTransaction()
+        }
+        legacyPrefs.edit().remove("proxies_json").commit()
+        // Deletion is complete even if this optional disk compaction fails.
+        val compacted = try {
+            db.execSQL("VACUUM")
+            true
+        } catch (_: android.database.sqlite.SQLiteException) {
+            false
+        }
+        return ProxyCleanupResult(checked, sourceEntries, compacted)
     }
 
     @Synchronized
