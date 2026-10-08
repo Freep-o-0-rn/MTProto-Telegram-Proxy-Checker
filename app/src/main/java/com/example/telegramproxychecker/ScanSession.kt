@@ -40,6 +40,9 @@ object ScanSession {
     private val resumeGate = MutableStateFlow(true)
     private val diskMutex = Mutex()
     private var cacheLoaded = false
+    // Only changed rows are committed; the shared SQLite store persists each
+    // result transactionally instead of rewriting thousands of old records.
+    private var lastPersisted = emptyMap<String, MtProxy>()
 
     suspend fun loadCache(context: Context) {
         diskMutex.withLock {
@@ -50,14 +53,22 @@ object ScanSession {
             mutableState.update { old ->
                 if (old.proxies.isEmpty()) old.copy(proxies = repository.sortProxies(saved)) else old
             }
+            lastPersisted = saved.associateBy { it.cacheKey }
             cacheLoaded = true
         }
     }
 
     suspend fun saveCache(context: Context) {
         diskMutex.withLock {
-            val snapshot = mutableState.value.proxies
-            withContext(Dispatchers.IO) { ProxyCache(context.applicationContext).saveProxies(snapshot) }
+            val changed = mutableState.value.proxies.filter {
+                lastPersisted[it.cacheKey] != it
+            }
+            if (changed.isNotEmpty()) {
+                withContext(Dispatchers.IO) {
+                    ProxyCache(context.applicationContext).saveProxies(changed)
+                }
+                lastPersisted = lastPersisted + changed.associateBy { it.cacheKey }
+            }
         }
     }
 

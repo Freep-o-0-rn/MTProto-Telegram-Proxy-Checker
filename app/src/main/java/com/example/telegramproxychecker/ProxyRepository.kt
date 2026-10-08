@@ -23,7 +23,7 @@ class ProxyRepository internal constructor(
     private val tcpCheck: suspend (MtProxy) -> MtProxy,
     private val telegramCheck: suspend (MtProxy) -> MtProxy,
     private val nowMillis: () -> Long = System::currentTimeMillis,
-    private val socksCheck: suspend (MtProxy) -> MtProxy = ::checkSocks5Handshake
+    private val socksCheck: suspend (MtProxy) -> MtProxy = { checkSocks5Handshake(it) }
 ) {
     constructor() : this(
         sourceLoader = ::downloadProxies,

@@ -70,7 +70,13 @@ class ProxyViewModel(application: Application) : AndroidViewModel(application) {
             // Results (including failures) have already been written to the persistent cache.
             val now = System.currentTimeMillis()
             val hasRecentChecks = ScanSession.state.value.proxies.any { proxy ->
-                proxy.checkedAt?.let { now - it in 0 until 30L * 60L * 1000L } == true
+                val sourceIsEnabled = when (proxy.protocol) {
+                    ProxySourceProtocol.MTPROTO -> mtprotoSourceEnabled
+                    ProxySourceProtocol.SOCKS5 -> socks5SourceEnabled
+                    else -> false
+                }
+                sourceIsEnabled &&
+                    (proxy.checkedAt?.let { now - it in 0 until 30L * 60L * 1000L } == true)
             }
             if (!ScanSession.state.value.running &&
                 (mtprotoSourceEnabled || socks5SourceEnabled) && !hasRecentChecks) refresh()
