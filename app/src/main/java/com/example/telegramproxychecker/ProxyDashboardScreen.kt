@@ -100,7 +100,7 @@ internal fun ProxyDashboardScreen(
     val sortedKeys = remember(sorted) { sorted.map { it.cacheKey } }
     val freezeOrder = listState.isScrollInProgress || listState.firstVisibleItemIndex > 1
     var stableKeys by remember(selectedTab, searchQuery) { mutableStateOf<List<String>>(emptyList()) }
-    LaunchedEffect(sortedKeys, freezeOrder) {
+    LaunchedEffect(selectedTab, searchQuery, sortedKeys, freezeOrder) {
         stableKeys = stableDashboardKeys(stableKeys, sortedKeys, freezeOrder)
     }
     val byKey = remember(proxies) { proxies.associateBy { it.cacheKey } }
@@ -538,6 +538,8 @@ private fun CompactProxyCard(
                         overflow = TextOverflow.Ellipsis
                     )
                 }
+                Spacer(Modifier.width(3.dp))
+                Text(if (expanded) "⌃" else "⌄", color = mutedText, fontSize = 17.sp)
             }
             IconButton(
                 onClick = onFavorite,
