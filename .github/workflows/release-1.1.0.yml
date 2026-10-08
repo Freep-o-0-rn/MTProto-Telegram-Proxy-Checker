@@ -1,12 +1,7 @@
 name: Publish FPProxy Checker 1.1.0
 
+# Historical workflow: do not re-publish an older version on later app updates.
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'app/build.gradle.kts'
-      - '.github/workflows/release-1.1.0.yml'
-      - 'releases/1.1.0.md'
   workflow_dispatch:
 
 permissions:
