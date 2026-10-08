@@ -43,6 +43,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
@@ -153,28 +154,21 @@ fun ProxyApp(viewModel: ProxyViewModel) {
         viewModel.loadOnce()
     }
 
-    val tcpOkCount = proxies.count { it.tcpOk == true }
-    val tcpFailCount = proxies.count { it.tcpOk == false }
+    val tcpOkCount = remember(proxies) { proxies.count { it.tcpOk == true } }
+    val tcpFailCount = remember(proxies) { proxies.count { it.tcpOk == false } }
 
-    val telegramOkCount = proxies.count { it.telegramOk == true }
-    val telegramFailCount = proxies.count { it.telegramOk == false && it.tcpOk == true }
-    val favoriteCount = proxies.count { it.isFavorite }
+    val telegramOkCount = remember(proxies) { proxies.count { it.telegramOk == true } }
+    val telegramFailCount = remember(proxies) {
+        proxies.count { it.telegramOk == false && it.tcpOk == true }
+    }
+    val favoriteCount = remember(proxies) { proxies.count { it.isFavorite } }
 
-    val visibleProxies = proxies
-        .filter {
-            if (showOnlyAvailable) {
-                it.telegramOk == true
-            } else {
-                true
-            }
+    val visibleProxies = remember(proxies, showOnlyAvailable, showOnlyFavorites) {
+        proxies.filter {
+            (!showOnlyAvailable || it.telegramOk == true) &&
+                (!showOnlyFavorites || it.isFavorite)
         }
-        .filter {
-            if (showOnlyFavorites) {
-                it.isFavorite
-            } else {
-                true
-            }
-        }
+    }
 
     Scaffold(
         containerColor = Color.Transparent,
@@ -222,7 +216,7 @@ fun ProxyApp(viewModel: ProxyViewModel) {
                         onClick = {
                             viewModel.refresh()
                         },
-                        enabled = !isLoading,
+                        enabled = !isLoading && checkingProxyKeys.isEmpty(),
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(16.dp),
                         colors = ButtonDefaults.buttonColors(
@@ -288,7 +282,7 @@ fun ProxyApp(viewModel: ProxyViewModel) {
                         onClick = {
                             viewModel.toggleOnlyAvailable()
                         },
-                        enabled = proxies.isNotEmpty() && !isLoading,
+                        enabled = proxies.isNotEmpty(),
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(16.dp),
                         colors = ButtonDefaults.buttonColors(
@@ -343,6 +337,7 @@ fun ProxyApp(viewModel: ProxyViewModel) {
                         proxy = proxy,
                         isSmallScreen = isSmallScreen,
                         isChecking = checkingProxyKeys.contains(proxy.cacheKey),
+                        canRecheck = !isLoading,
                         onConnectClick = {
                             openTelegramProxy(context, proxy)
                         },
@@ -405,6 +400,7 @@ fun ProxyItem(
     proxy: MtProxy,
     isSmallScreen: Boolean,
     isChecking: Boolean,
+    canRecheck: Boolean,
     onConnectClick: () -> Unit,
     onFavoriteClick: () -> Unit,
     onRecheckClick: () -> Unit
@@ -484,6 +480,7 @@ fun ProxyItem(
 
                     RecheckButton(
                         isChecking = isChecking,
+                        enabled = canRecheck,
                         onClick = onRecheckClick
                     )
                 }
@@ -557,6 +554,7 @@ fun ProxyItem(
 @Composable
 fun RecheckButton(
     isChecking: Boolean,
+    enabled: Boolean,
     onClick: () -> Unit
 ) {
     val infiniteTransition = rememberInfiniteTransition(label = "recheck_rotation")
@@ -580,7 +578,7 @@ fun RecheckButton(
 
     Button(
         onClick = onClick,
-        enabled = !isChecking,
+        enabled = enabled && !isChecking,
         shape = RoundedCornerShape(12.dp),
         contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
         colors = ButtonDefaults.buttonColors(

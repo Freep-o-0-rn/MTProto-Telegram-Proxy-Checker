@@ -20,3 +20,10 @@ data class MtProxy(
     val cacheKey: String
         get() = "$server:$port:$secret"
 }
+
+internal fun List<MtProxy>.withFavoritesFrom(current: List<MtProxy>): List<MtProxy> {
+    val favorites = current.associate { it.cacheKey to it.isFavorite }
+    return map { proxy ->
+        proxy.copy(isFavorite = favorites[proxy.cacheKey] ?: proxy.isFavorite)
+    }
+}

@@ -6,12 +6,18 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 
 class ProxyViewModel(application: Application) : AndroidViewModel(application) {
 
     private val repository = ProxyRepository()
     private val cache = ProxyCache(application.applicationContext)
+    private val cacheWriteMutex = Mutex()
 
     var proxies by mutableStateOf<List<MtProxy>>(emptyList())
         private set
@@ -44,69 +50,53 @@ class ProxyViewModel(application: Application) : AndroidViewModel(application) {
 
         wasLoadedOnce = true
 
-        val cached = cache.loadProxies()
-
-        if (cached.isNotEmpty()) {
-            proxies = repository.sortProxies(cached)
-        }
-
         refresh(force = false)
     }
 
     fun refresh(force: Boolean = false) {
-        if (isLoading) return
+        if (isLoading || checkingProxyKeys.isNotEmpty()) return
+
+        isLoading = true
+        error = null
+        checkedCount = 0
+        totalCount = 0
 
         viewModelScope.launch {
-            isLoading = true
-            error = null
-            checkedCount = 0
-            totalCount = 0
-
-            val cached = cache.loadProxies()
-
-            if (proxies.isEmpty() && cached.isNotEmpty()) {
-                proxies = repository.sortProxies(cached)
-            }
-
-            val currentBeforeRefresh = proxies
-
-            val baseForCache = if (currentBeforeRefresh.isNotEmpty()) {
-                currentBeforeRefresh
-            } else {
-                cached
-            }
-
             try {
-                val result = repository.loadAndCheckProxies(
-                    cachedProxies = baseForCache,
-                    force = force
+                if (proxies.isEmpty()) {
+                    val cached = withContext(Dispatchers.IO) { cache.loadProxies() }
+                    proxies = repository.sortProxies(cached)
+                }
+
+                repository.loadAndCheckProxies(
+                    cachedProxies = proxies,
+                    force = force,
+                    onUpdate = { snapshot ->
+                        // Favorites may change while the scan is running.
+                        proxies = repository.sortProxies(snapshot.withFavoritesFrom(proxies))
+                    }
                 ) { checked, total ->
                     checkedCount = checked
                     totalCount = total
                 }
 
-                val resultWithFavorites = applyFavorites(
-                    freshList = result,
-                    oldList = baseForCache
-                )
-
-                proxies = repository.sortProxies(resultWithFavorites)
-                cache.saveProxies(proxies)
-
+                saveCache()
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 error = if (proxies.isNotEmpty()) {
                     "Не удалось обновить. Показан сохранённый список."
                 } else {
                     e.message ?: "Ошибка загрузки"
                 }
+            } finally {
+                isLoading = false
             }
-
-            isLoading = false
         }
     }
 
     fun recheckProxy(proxy: MtProxy) {
-        if (checkingProxyKeys.contains(proxy.cacheKey)) return
+        if (isLoading || checkingProxyKeys.contains(proxy.cacheKey)) return
 
         checkingProxyKeys = checkingProxyKeys + proxy.cacheKey
 
@@ -115,7 +105,8 @@ class ProxyViewModel(application: Application) : AndroidViewModel(application) {
                 val checked = repository.recheckOneProxy(proxy)
 
                 val checkedWithFavorite = checked.copy(
-                    isFavorite = proxy.isFavorite
+                    isFavorite = proxies.firstOrNull { it.cacheKey == proxy.cacheKey }?.isFavorite
+                        ?: proxy.isFavorite
                 )
 
                 val updated = proxies.map {
@@ -127,13 +118,14 @@ class ProxyViewModel(application: Application) : AndroidViewModel(application) {
                 }
 
                 proxies = repository.sortProxies(updated)
-                cache.saveProxies(proxies)
-
+                saveCache()
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 error = e.message ?: "Ошибка точечной проверки"
+            } finally {
+                checkingProxyKeys = checkingProxyKeys - proxy.cacheKey
             }
-
-            checkingProxyKeys = checkingProxyKeys - proxy.cacheKey
         }
     }
 
@@ -155,22 +147,15 @@ class ProxyViewModel(application: Application) : AndroidViewModel(application) {
         }
 
         proxies = repository.sortProxies(updated)
-        cache.saveProxies(proxies)
+        viewModelScope.launch { saveCache() }
     }
 
-    private fun applyFavorites(
-        freshList: List<MtProxy>,
-        oldList: List<MtProxy>
-    ): List<MtProxy> {
-        val favoriteKeys = oldList
-            .filter { it.isFavorite }
-            .map { it.cacheKey }
-            .toSet()
-
-        return freshList.map { proxy ->
-            proxy.copy(
-                isFavorite = proxy.isFavorite || proxy.cacheKey in favoriteKeys
-            )
+    private suspend fun saveCache() {
+        // Serialize writes and take the newest state only after acquiring the lock.
+        // JSON encoding must not block Compose or let an older save win a race.
+        cacheWriteMutex.withLock {
+            val snapshot = proxies
+            withContext(Dispatchers.IO) { cache.saveProxies(snapshot) }
         }
     }
 }

@@ -1,33 +1,40 @@
 package com.example.telegramproxychecker
 
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import java.net.URI
+import java.net.HttpURLConnection
 
 private const val PROXY_LIST_URL =
     "https://raw.githubusercontent.com/SoliSpirit/mtproto/master/all_proxies.txt"
 
 private const val CHECK_FRESH_MS = 30L * 60L * 1000L
 private const val MAX_OLD_FAIL_RECHECK = 20
+private const val PARALLEL_CHECKS = 6
+private const val RESULT_UPDATE_INTERVAL_MS = 200L
 
-class ProxyRepository {
+class ProxyRepository internal constructor(
+    private val sourceLoader: suspend () -> List<MtProxy>,
+    private val tcpCheck: suspend (MtProxy) -> MtProxy,
+    private val telegramCheck: suspend (MtProxy) -> MtProxy,
+    private val nowMillis: () -> Long = System::currentTimeMillis
+) {
+    constructor() : this(
+        sourceLoader = ::downloadProxies,
+        tcpCheck = { checkTcpProxy(it) },
+        telegramCheck = TelegramMtprotoChecker()::check
+    )
 
-    private val telegramChecker = TelegramMtprotoChecker()
+    // Shared by bulk and individual checks; extra taps cannot bypass the limit.
+    private val checkSlots = Semaphore(PARALLEL_CHECKS)
 
-    suspend fun loadProxies(): List<MtProxy> {
-        return withContext(Dispatchers.IO) {
-            val text = URI(PROXY_LIST_URL).toURL().readText()
-
-            text.lines()
-                .mapNotNull { parseProxyLine(it) }
-                .distinctBy { it.cacheKey }
-        }
-    }
+    suspend fun loadProxies(): List<MtProxy> = sourceLoader()
 
     suspend fun recheckOneProxy(proxy: MtProxy): MtProxy {
         return checkSingleProxy(proxy)
@@ -36,11 +43,14 @@ class ProxyRepository {
     suspend fun loadAndCheckProxies(
         cachedProxies: List<MtProxy>,
         force: Boolean = false,
+        onUpdate: (List<MtProxy>) -> Unit = {},
         onProgress: (checked: Int, total: Int) -> Unit = { _, _ -> }
     ): List<MtProxy> {
         val sourceProxies = try {
             val githubProxies = loadProxies()
             mergeGithubWithCache(githubProxies, cachedProxies)
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             if (cachedProxies.isNotEmpty()) {
                 cachedProxies
@@ -52,51 +62,56 @@ class ProxyRepository {
         val queue = buildCheckQueue(sourceProxies, force)
 
         onProgress(0, queue.size)
+        onUpdate(sortProxies(sourceProxies))
 
         if (queue.isEmpty()) {
             return sortProxies(sourceProxies)
         }
 
         return coroutineScope {
-            val semaphore = Semaphore(3)
-            var checkedCount = 0
-
-            val checkedResults = queue.map { proxy ->
-                async {
-                    semaphore.withPermit {
-                        val result = checkSingleProxy(proxy)
-
-                        checkedCount += 1
-                        onProgress(checkedCount, queue.size)
-
-                        result
-                    }
+            val pending = Channel<MtProxy>(PARALLEL_CHECKS)
+            val completed = Channel<MtProxy>(PARALLEL_CHECKS)
+            launch {
+                for (proxy in queue) pending.send(proxy)
+                pending.close()
+            }
+            // Fixed worker count instead of allocating one suspended async per proxy.
+            repeat(minOf(PARALLEL_CHECKS, queue.size)) {
+                launch {
+                    for (proxy in pending) completed.send(checkSingleProxy(proxy))
                 }
-            }.awaitAll()
-
-            val checkedMap = checkedResults.associateBy { it.cacheKey }
-
-            val finalList = sourceProxies.map { proxy ->
-                checkedMap[proxy.cacheKey] ?: proxy
             }
 
-            sortProxies(finalList)
+            val current = sourceProxies.associateByTo(LinkedHashMap()) { it.cacheKey }
+            var lastUpdate = nowMillis()
+            var lastList = emptyList<MtProxy>()
+            // One collector owns progress and snapshots, even on a multi-threaded caller.
+            repeat(queue.size) { index ->
+                val result = completed.receive()
+                current[result.cacheKey] = result
+                onProgress(index + 1, queue.size)
+                val now = nowMillis()
+                if (index == 0 || index == queue.lastIndex || now - lastUpdate >= RESULT_UPDATE_INTERVAL_MS) {
+                    lastList = sortProxies(current.values.toList())
+                    onUpdate(lastList)
+                    lastUpdate = now
+                }
+            }
+            lastList
         }
     }
 
-    private suspend fun checkSingleProxy(proxy: MtProxy): MtProxy {
-        val now = System.currentTimeMillis()
-
-        val tcpChecked = checkTcpProxy(proxy)
+    private suspend fun checkSingleProxy(proxy: MtProxy): MtProxy = checkSlots.withPermit {
+        val tcpChecked = tcpCheck(proxy)
 
         val telegramChecked = if (tcpChecked.tcpOk == true) {
-            telegramChecker.check(tcpChecked)
+            telegramCheck(tcpChecked)
         } else {
             tcpChecked
         }
 
-        return telegramChecked.copy(
-            checkedAt = now,
+        telegramChecked.copy(
+            checkedAt = nowMillis(),
             isFavorite = proxy.isFavorite
         )
     }
@@ -139,11 +154,11 @@ class ProxyRepository {
         proxies: List<MtProxy>,
         force: Boolean
     ): List<MtProxy> {
-        val now = System.currentTimeMillis()
+        val now = nowMillis()
 
         fun isFresh(proxy: MtProxy): Boolean {
             val checkedAt = proxy.checkedAt ?: return false
-            return now - checkedAt < CHECK_FRESH_MS
+            return now - checkedAt in 0 until CHECK_FRESH_MS
         }
 
         val needCheck = if (force) {
@@ -179,5 +194,18 @@ class ProxyRepository {
                 .thenBy { it.telegramPingMs ?: Long.MAX_VALUE }
                 .thenBy { it.tcpPingMs ?: Long.MAX_VALUE }
         )
+    }
+}
+
+private suspend fun downloadProxies(): List<MtProxy> = withContext(Dispatchers.IO) {
+    val connection = URI(PROXY_LIST_URL).toURL().openConnection() as HttpURLConnection
+    connection.connectTimeout = 10_000
+    connection.readTimeout = 15_000
+    try {
+        connection.inputStream.bufferedReader().useLines { lines ->
+            lines.mapNotNull { parseProxyLine(it) }.distinctBy { it.cacheKey }.toList()
+        }
+    } finally {
+        connection.disconnect()
     }
 }

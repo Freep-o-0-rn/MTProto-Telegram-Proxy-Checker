@@ -1,12 +1,34 @@
 package com.example.telegramproxychecker
 
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import org.drinkless.tdlib.Client
 import org.drinkless.tdlib.TdApi
 import kotlin.coroutines.resume
 
-class TelegramMtprotoChecker {
+private const val DC_START_DELAY_MS = 200L
+private const val TD_REQUEST_TIMEOUT_SECONDS = 5.0
+private const val CALLBACK_TIMEOUT_MS = 7000L
+
+// A small boundary lets JVM tests exercise scheduling without loading native TDLib.
+internal interface TelegramProbeClient {
+    fun send(proxy: MtProxy, dcId: Int, timeoutSeconds: Double, onResult: (TelegramCheckResult) -> Unit)
+    fun close()
+}
+
+class TelegramMtprotoChecker internal constructor(
+    private val createClient: () -> TelegramProbeClient,
+    private val dispatcher: CoroutineDispatcher = Dispatchers.IO
+) {
+    constructor() : this({ TdlibProbeClient() })
 
     private val dcIds = listOf(1, 2, 3, 4, 5)
 
@@ -19,8 +41,7 @@ class TelegramMtprotoChecker {
             )
         }
 
-        val result = testProxy(proxy)
-
+        val result = withContext(dispatcher) { testProxy(proxy) }
         return proxy.copy(
             telegramOk = result.ok,
             telegramPingMs = result.pingMs,
@@ -28,128 +49,92 @@ class TelegramMtprotoChecker {
         )
     }
 
-    private suspend fun testProxy(proxy: MtProxy): TelegramCheckResult {
-        val client = Client.create(
-            Client.ResultHandler { },
-            null,
-            null
-        )
-
-        return try {
-            val errors = mutableListOf<String>()
-
-            for (dcId in dcIds) {
-                val result = testProxyOnDc(
-                    client = client,
-                    proxy = proxy,
-                    dcId = dcId
-                )
-
-                if (result.ok) {
-                    return result
-                }
-
-                if (!result.error.isNullOrBlank()) {
-                    errors.add("DC$dcId: ${result.error}")
-                }
+    private suspend fun testProxy(proxy: MtProxy): TelegramCheckResult = coroutineScope {
+        val client = createClient()
+        val results = Channel<Pair<Int, TelegramCheckResult>>(dcIds.size)
+        // Give a fast first DC a chance to finish without opening extra connections.
+        // A slow/blocked DC must not hold up the remaining DCs for 5–7 seconds each.
+        val probes = dcIds.mapIndexed { index, dcId ->
+            launch {
+                delay(index * DC_START_DELAY_MS)
+                results.send(dcId to testProxyOnDc(client, proxy, dcId))
             }
+        }
 
+        try {
+            val errors = mutableMapOf<Int, String>()
+            repeat(dcIds.size) {
+                val (dcId, result) = results.receive()
+                if (result.ok) return@coroutineScope result
+                result.error?.takeIf { it.isNotBlank() }?.let { errors[dcId] = it }
+            }
             TelegramCheckResult(
                 ok = false,
                 pingMs = null,
-                error = errors.firstOrNull() ?: "Все DC Telegram недоступны"
-            )
-        } catch (e: Exception) {
-            TelegramCheckResult(
-                ok = false,
-                pingMs = null,
-                error = e.message ?: "TDLib error"
+                error = dcIds.firstNotNullOfOrNull { dcId ->
+                    errors[dcId]?.let { "DC$dcId: $it" }
+                } ?: "Все DC Telegram недоступны"
             )
         } finally {
-            closeClient(client)
+            probes.forEach { it.cancel() }
+            // Cancelling a coroutine alone does not cancel a native TestProxy request.
+            // Each proxy owns its client, so Close also stops its unfinished probes.
+            client.close()
         }
     }
 
     private suspend fun testProxyOnDc(
-        client: Client,
+        client: TelegramProbeClient,
         proxy: MtProxy,
         dcId: Int
     ): TelegramCheckResult {
-        val start = System.currentTimeMillis()
-
-        return withTimeoutOrNull(7000L) {
-            suspendCancellableCoroutine<TelegramCheckResult> { cont ->
-
-                val proxyType = TdApi.ProxyTypeMtproto(proxy.secret)
-
-                val tdProxy = TdApi.Proxy(
-                    proxy.server,
-                    proxy.port,
-                    proxyType
-                )
-
-                val request = TdApi.TestProxy(
-                    tdProxy,
-                    dcId,
-                    5.0
-                )
-
-                client.send(
-                    request,
-                    Client.ResultHandler { response ->
-                        if (!cont.isActive) {
-                            return@ResultHandler
-                        }
-
-                        when (response) {
-                            is TdApi.Ok -> {
-                                cont.resume(
-                                    TelegramCheckResult(
-                                        ok = true,
-                                        pingMs = System.currentTimeMillis() - start,
-                                        error = null
-                                    )
-                                )
-                            }
-
-                            is TdApi.Error -> {
-                                cont.resume(
-                                    TelegramCheckResult(
-                                        ok = false,
-                                        pingMs = null,
-                                        error = response.message
-                                    )
-                                )
-                            }
-
-                            else -> {
-                                cont.resume(
-                                    TelegramCheckResult(
-                                        ok = false,
-                                        pingMs = null,
-                                        error = "Неожиданный ответ TDLib"
-                                    )
-                                )
-                            }
-                        }
+        return try {
+            withTimeoutOrNull(CALLBACK_TIMEOUT_MS) {
+                suspendCancellableCoroutine { cont ->
+                    client.send(proxy, dcId, TD_REQUEST_TIMEOUT_SECONDS) { result ->
+                        // TDLib may deliver a result after timeout, success on another DC,
+                        // or cancellation of the entire scan.
+                        if (cont.isActive) cont.resume(result)
                     }
-                )
-            }
-        } ?: TelegramCheckResult(
-            ok = false,
-            pingMs = null,
-            error = "TDLib timeout"
+                }
+            } ?: TelegramCheckResult(false, null, "TDLib timeout")
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            TelegramCheckResult(false, null, e.message ?: "TDLib error")
+        }
+    }
+}
+
+private class TdlibProbeClient : TelegramProbeClient {
+    private val client = Client.create(Client.ResultHandler { }, null, null)
+
+    override fun send(
+        proxy: MtProxy,
+        dcId: Int,
+        timeoutSeconds: Double,
+        onResult: (TelegramCheckResult) -> Unit
+    ) {
+        val start = System.nanoTime()
+        val request = TdApi.TestProxy(
+            TdApi.Proxy(proxy.server, proxy.port, TdApi.ProxyTypeMtproto(proxy.secret)),
+            dcId,
+            timeoutSeconds
         )
+        client.send(request, Client.ResultHandler { response ->
+            onResult(when (response) {
+                is TdApi.Ok -> TelegramCheckResult(true, (System.nanoTime() - start) / 1_000_000, null)
+                is TdApi.Error -> TelegramCheckResult(false, null, response.message)
+                else -> TelegramCheckResult(false, null, "Неожиданный ответ TDLib")
+            })
+        })
     }
 
-    private fun closeClient(client: Client) {
+    override fun close() {
         try {
-            client.send(
-                TdApi.Close(),
-                Client.ResultHandler { }
-            )
+            client.send(TdApi.Close(), Client.ResultHandler { })
         } catch (_: Exception) {
-            // клиент уже мог быть закрыт
+            // The client may already be closed.
         }
     }
 }
