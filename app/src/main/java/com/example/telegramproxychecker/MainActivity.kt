@@ -404,7 +404,7 @@ fun ProxyApp(viewModel: ProxyViewModel) {
 }
 
 @Composable
-fun StatsCard(
+internal fun StatsCard(
     total: Int,
     tcpOk: Int,
     tcpFail: Int,
