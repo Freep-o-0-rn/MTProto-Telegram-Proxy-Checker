@@ -57,20 +57,22 @@ jobs:
           "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging FPProxyChecker-v1.1.2.apk | grep "versionName='1.1.2'"
           sha256sum FPProxyChecker-v1.1.2.apk > FPProxyChecker-v1.1.2.apk.sha256
 
-      - name: Publish GitHub Release and APK
+      - name: Replace APK assets in existing GitHub Release 1.1.2
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
         run: |
           set -euo pipefail
-          if gh release view 1.1.2 >/dev/null 2>&1; then
-            echo "Release 1.1.2 already exists; preserving existing signed APK."
-            exit 0
-          fi
-          gh release create 1.1.2 \
+          # Only replace the existing 1.1.2 release; never create a new release.
+          gh release view 1.1.2 >/dev/null
+          gh release upload 1.1.2 \
             FPProxyChecker-v1.1.2.apk \
             FPProxyChecker-v1.1.2.apk.sha256 \
-            --target "$GITHUB_SHA" \
-            --title "FPProxy Checker 1.1.2" \
+            --clobber
+          gh release edit 1.1.2 \
             --notes-file releases/1.1.2.md \
             --latest
+          # Keep the original release tag aligned with the replaced APK's source.
+          gh api --method PATCH \
+            "repos/${GITHUB_REPOSITORY}/git/refs/tags/1.1.2" \
+            -f sha="$GITHUB_SHA" -F force=true >/dev/null
