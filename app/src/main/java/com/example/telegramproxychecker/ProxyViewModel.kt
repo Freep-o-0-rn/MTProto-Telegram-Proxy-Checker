@@ -16,13 +16,9 @@ class ProxyViewModel(application: Application) : AndroidViewModel(application) {
         private set
     var isLoading by mutableStateOf(ScanSession.state.value.running)
         private set
-    var isPaused by mutableStateOf(ScanSession.state.value.paused)
+    internal var scanProgress by mutableStateOf(ScanSession.state.value.progress)
         private set
     var error by mutableStateOf(ScanSession.state.value.error)
-        private set
-    var checkedCount by mutableStateOf(ScanSession.state.value.checked)
-        private set
-    var totalCount by mutableStateOf(ScanSession.state.value.total)
         private set
 
     var showOnlyAvailable by mutableStateOf(false)
@@ -39,9 +35,7 @@ class ProxyViewModel(application: Application) : AndroidViewModel(application) {
             ScanSession.state.collect { current ->
                 proxies = current.proxies
                 isLoading = current.running
-                isPaused = current.paused
-                checkedCount = current.checked
-                totalCount = current.total
+                scanProgress = current.progress
                 error = current.error
             }
         }
