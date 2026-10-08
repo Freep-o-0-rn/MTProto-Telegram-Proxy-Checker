@@ -174,11 +174,11 @@ class ProxyRepository internal constructor(
             return now - checkedAt in 0 until CHECK_FRESH_MS
         }
 
-        val needCheck = if (force) {
-            proxies
-        } else {
-            proxies.filterNot { isFresh(it) }
-        }
+        // A forced scan must bypass *both* the freshness window and
+        // MAX_OLD_FAIL_RECHECK. The cap applies only to incremental scans.
+        if (force) return proxies.distinctBy { it.cacheKey }
+
+        val needCheck = proxies.filterNot { isFresh(it) }
 
         val oldTelegramOk = needCheck
             .filter { it.telegramOk == true }
