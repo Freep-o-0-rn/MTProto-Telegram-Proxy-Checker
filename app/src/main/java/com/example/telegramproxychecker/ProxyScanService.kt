@@ -40,6 +40,20 @@ class ProxyScanService : Service() {
                 .setAction(START).putExtra("force", force)
             ContextCompat.startForegroundService(context, intent)
         }
+
+        // UI controls use exactly the same service commands as notification actions.
+        // No second scan manager or notification state is introduced.
+        fun pause(context: Context) {
+            context.startService(Intent(context, ProxyScanService::class.java).setAction(PAUSE))
+        }
+
+        fun resume(context: Context) {
+            context.startService(Intent(context, ProxyScanService::class.java).setAction(RESUME))
+        }
+
+        fun stop(context: Context) {
+            context.startService(Intent(context, ProxyScanService::class.java).setAction(STOP))
+        }
     }
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
