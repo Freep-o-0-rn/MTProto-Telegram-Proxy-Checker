@@ -119,8 +119,8 @@ internal fun ProxyDashboardScreen(
                 actions = {
                     IconButton(
                         onClick = { viewModel.refresh(tcpOkOnly = true) },
-                        enabled = !isScanning && pendingSingle.isEmpty() && (viewModel.mtprotoSourceEnabled || viewModel.socks5SourceEnabled) && proxies.any { it.tcpOk == true },
-                        modifier = Modifier.semantics { contentDescription = "Проверка доступных по TCP прокси" }
+                        enabled = !isScanning && pendingSingle.isEmpty() && (viewModel.mtprotoSourceEnabled || viewModel.socks5SourceEnabled) && proxies.any { it.tcpOk == true || it.isUnstableTelegramOk },
+                        modifier = Modifier.semantics { contentDescription = "Проверка TCP OK и нестабильных Telegram OK прокси" }
                     ) {
                         Text("↻", fontSize = 26.sp, color = if (isScanning) mutedText else blue)
                     }
@@ -132,7 +132,7 @@ internal fun ProxyDashboardScreen(
                         DropdownMenu(expanded = moreOpen, onDismissRequest = { moreOpen = false }) {
                             DropdownMenuItem(
                                 text = { Text("Проверка") },
-                                enabled = !isScanning && pendingSingle.isEmpty() && (viewModel.mtprotoSourceEnabled || viewModel.socks5SourceEnabled) && proxies.any { it.tcpOk == true },
+                                enabled = !isScanning && pendingSingle.isEmpty() && (viewModel.mtprotoSourceEnabled || viewModel.socks5SourceEnabled) && proxies.any { it.tcpOk == true || it.isUnstableTelegramOk },
                                 onClick = {
                                     moreOpen = false
                                     viewModel.refresh(tcpOkOnly = true)
@@ -535,8 +535,10 @@ private fun CompactProxyCard(
     onRecheck: () -> Unit
 ) {
     val isWorking = proxy.telegramOk == true
+    val isUnstable = proxy.isUnstableTelegramOk
     val skippedTelegram = proxy.tcpOk == false && proxy.telegramError == "TCP недоступен"
     val status = when {
+        isUnstable -> "Telegram OK · Нестабильно"
         isWorking -> "Telegram OK"
         skippedTelegram -> "Не проверен · TCP FAIL"
         proxy.telegramError?.startsWith("SOCKS5:") == true -> "SOCKS5 FAIL"
@@ -544,6 +546,7 @@ private fun CompactProxyCard(
         else -> "Не проверен"
     }
     val statusColor = when {
+        isUnstable -> yellow
         isWorking -> green
         skippedTelegram -> yellow
         proxy.telegramOk == false -> red
@@ -577,7 +580,7 @@ private fun CompactProxyCard(
                     Text(
                         ":${proxy.port} · ${proxy.protocol.label} · $status" +
                             (if (isWorking) " · ${formatDashboardPing(proxy.telegramPingMs)}" else ""),
-                        color = if (isWorking) green else mutedText,
+                        color = if (isUnstable) yellow else if (isWorking) green else mutedText,
                         fontSize = 10.sp,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
@@ -619,7 +622,14 @@ private fun CompactProxyCard(
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 DetailValue("Протокол", proxy.protocol.label)
-                DetailValue("Telegram", if (isWorking) "OK · ${formatDashboardPing(proxy.telegramPingMs)}" else status)
+                DetailValue("Telegram", if (isUnstable) "OK · Нестабильно · ${formatDashboardPing(proxy.telegramPingMs)}" else if (isWorking) "OK · ${formatDashboardPing(proxy.telegramPingMs)}" else status)
+                if (isUnstable) {
+                    Text(
+                        "TDLib подтвердил Telegram, но обычная TCP-проверка не прошла. Подключение может быть нестабильным.",
+                        color = yellow,
+                        fontSize = 11.sp
+                    )
+                }
                 DetailValue(
                     "TCP",
                     when (proxy.tcpOk) {
