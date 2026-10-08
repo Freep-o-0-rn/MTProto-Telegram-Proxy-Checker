@@ -21,6 +21,9 @@ class ProxyViewModel(application: Application) : AndroidViewModel(application) {
     var error by mutableStateOf(ScanSession.state.value.error)
         private set
 
+    var mtprotoSourceEnabled by mutableStateOf(ProxySourceSettings.mtprotoEnabled(application))
+        private set
+
     var showOnlyAvailable by mutableStateOf(false)
         private set
     var showOnlyFavorites by mutableStateOf(false)
@@ -56,19 +59,29 @@ class ProxyViewModel(application: Application) : AndroidViewModel(application) {
             val hasRecentChecks = ScanSession.state.value.proxies.any { proxy ->
                 proxy.checkedAt?.let { now - it in 0 until 30L * 60L * 1000L } == true
             }
-            if (!ScanSession.state.value.running && !hasRecentChecks) refresh()
+            if (!ScanSession.state.value.running && mtprotoSourceEnabled && !hasRecentChecks) refresh()
         }
     }
 
-    fun refresh(force: Boolean = false) {
+    fun refresh(force: Boolean = false, tcpOkOnly: Boolean = false) {
         if (ScanSession.state.value.running || checkingProxyKeys.isNotEmpty()) return
+        if (!mtprotoSourceEnabled) {
+            ScanSession.setError("Источник MTProto выключен в настройках")
+            return
+        }
         ScanSession.start()
         try {
-            ProxyScanService.start(getApplication(), force)
+            ProxyScanService.start(getApplication(), force, tcpOkOnly)
         } catch (e: Exception) {
             ScanSession.setError(e.message ?: "Не удалось запустить фоновый сервис")
             ScanSession.finish()
         }
+    }
+
+    fun updateMtprotoSourceEnabled(enabled: Boolean) {
+        if (ScanSession.state.value.running || checkingProxyKeys.isNotEmpty()) return
+        ProxySourceSettings.setMtprotoEnabled(getApplication(), enabled)
+        mtprotoSourceEnabled = enabled
     }
 
     fun pauseScan() {

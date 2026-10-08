@@ -194,6 +194,57 @@ class ProxyRepositoryTest {
     }
 
     @Test
+    fun quickCheckRetestsEveryPreviousTcpOkEvenWhenCacheIsFresh() = runTest {
+        val source = listOf(
+            testProxy(0).copy(tcpOk = true, checkedAt = 3_599_000L, telegramOk = true),
+            testProxy(1).copy(tcpOk = true, checkedAt = 3_599_000L, telegramOk = false),
+            testProxy(2).copy(tcpOk = false, checkedAt = 1L, telegramOk = false),
+            testProxy(3).copy(tcpOk = null, checkedAt = null)
+        )
+        val attempted = mutableListOf<String>()
+        val telegramAttempts = mutableListOf<String>()
+        val progress = mutableListOf<Pair<Int, Int>>()
+        val repository = ProxyRepository(
+            sourceLoader = { source },
+            tcpCheck = { attempted += it.cacheKey; it.copy(tcpOk = false) },
+            telegramCheck = {
+                telegramAttempts += it.cacheKey
+                it.copy(telegramOk = true, telegramPingMs = 200L)
+            },
+            nowMillis = { 3_600_000L }
+        )
+        val result = repository.loadAndCheckProxies(
+            cachedProxies = source,
+            tcpOkOnly = true,
+            onProgress = { checked, total -> progress += checked to total }
+        )
+
+        assertEquals(source.take(2).map { it.cacheKey }.toSet(), attempted.toSet())
+        assertEquals(source.take(2).map { it.cacheKey }.toSet(), telegramAttempts.toSet())
+        assertEquals(0 to 2, progress.first())
+        assertEquals(2 to 2, progress.last())
+        assertEquals(4, result.size)
+        assertTrue(result.filter { it.cacheKey in attempted }.all { it.telegramOk == true })
+        assertEquals(false, result.single { it.cacheKey == source[2].cacheKey }.telegramOk)
+    }
+
+    @Test
+    fun quickCheckWithoutTcpOkDoesNotRetryEveryFailedProxy() = runTest {
+        val source = (0 until 8).map { testProxy(it).copy(tcpOk = false, telegramOk = false) }
+        var checks = 0
+        val repository = ProxyRepository(
+            sourceLoader = { source },
+            tcpCheck = { checks++; it },
+            telegramCheck = { error("Quick check should have no work") }
+        )
+        val progress = mutableListOf<Pair<Int, Int>>()
+        repository.loadAndCheckProxies(source, tcpOkOnly = true,
+            onProgress = { checked, total -> progress += checked to total })
+        assertEquals(0, checks)
+        assertEquals(listOf(0 to 0), progress)
+    }
+
+    @Test
     fun forcedScanChecksEveryCachedFailure() = runTest {
         val stale = (0 until 50).map {
             testProxy(it).copy(checkedAt = 5L, telegramOk = false)

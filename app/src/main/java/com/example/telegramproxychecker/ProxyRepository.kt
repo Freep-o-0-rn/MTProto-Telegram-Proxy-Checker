@@ -44,6 +44,7 @@ class ProxyRepository internal constructor(
         force: Boolean = false,
         onUpdate: (List<MtProxy>) -> Unit = {},
         beforeCheck: suspend () -> Unit = {},
+        tcpOkOnly: Boolean = false,
         onProgress: (checked: Int, total: Int) -> Unit = { _, _ -> }
     ): List<MtProxy> {
         val sourceProxies = try {
@@ -59,7 +60,7 @@ class ProxyRepository internal constructor(
             }
         }
 
-        val queue = buildCheckQueue(sourceProxies, force)
+        val queue = buildCheckQueue(sourceProxies, force, tcpOkOnly)
 
         onProgress(0, queue.size)
         onUpdate(sortProxies(sourceProxies))
@@ -80,7 +81,7 @@ class ProxyRepository internal constructor(
                 launch {
                     for (proxy in pending) {
                         beforeCheck()
-                        completed.send(checkSingleProxy(proxy, verifyDespiteTcpFailure = force))
+                        completed.send(checkSingleProxy(proxy, verifyDespiteTcpFailure = force || tcpOkOnly))
                     }
                 }
             }
@@ -164,7 +165,8 @@ class ProxyRepository internal constructor(
 
     private fun buildCheckQueue(
         proxies: List<MtProxy>,
-        force: Boolean
+        force: Boolean,
+        tcpOkOnly: Boolean
     ): List<MtProxy> {
         val now = nowMillis()
 
@@ -176,6 +178,10 @@ class ProxyRepository internal constructor(
         // Force checks every proxy; ordinary refresh checks all stale entries.
         // Fresh results are still reused by incremental refreshes.
         if (force) return proxies.distinctBy { it.cacheKey }
+
+        // Quick manual "Проверка": only previously TCP-reachable servers.
+        // Re-test regardless of TTL; a Telegram FAIL may become Telegram OK.
+        if (tcpOkOnly) return proxies.filter { it.tcpOk == true }.distinctBy { it.cacheKey }
 
         val needCheck = proxies.filterNot { isFresh(it) }
 

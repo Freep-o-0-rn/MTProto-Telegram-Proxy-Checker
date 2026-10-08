@@ -35,9 +35,9 @@ class ProxyScanService : Service() {
         private const val RESUME = "com.example.telegramproxychecker.scan.RESUME"
         private const val STOP = "com.example.telegramproxychecker.scan.STOP"
 
-        fun start(context: Context, force: Boolean = false) {
+        fun start(context: Context, force: Boolean = false, tcpOkOnly: Boolean = false) {
             val intent = Intent(context, ProxyScanService::class.java)
-                .setAction(START).putExtra("force", force)
+                .setAction(START).putExtra("force", force).putExtra("tcp_ok_only", tcpOkOnly)
             ContextCompat.startForegroundService(context, intent)
         }
 
@@ -99,6 +99,7 @@ class ProxyScanService : Service() {
                         ScanSession.repository.loadAndCheckProxies(
                             cachedProxies = ScanSession.state.value.proxies,
                             force = intent.getBooleanExtra("force", false),
+                            tcpOkOnly = intent.getBooleanExtra("tcp_ok_only", false),
                             onUpdate = {
                                 ScanSession.updateProxies(it)
                                 scheduleSave()
