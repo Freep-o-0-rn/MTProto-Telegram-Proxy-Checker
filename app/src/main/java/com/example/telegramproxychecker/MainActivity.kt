@@ -136,7 +136,8 @@ fun ProxyApp(viewModel: ProxyViewModel) {
             onBack = { showSettings = false },
             enabledSourceIds = viewModel.enabledSourceIds,
             selectedUniqueCount = viewModel.selectedUniqueCount,
-            sourceSwitchEnabled = !viewModel.isLoading && viewModel.checkingProxyKeys.isEmpty(),
+            sourceSwitchEnabled = !viewModel.isLoading && !viewModel.clearingProxyData &&
+                viewModel.checkingProxyKeys.isEmpty(),
             inventoryCounts = viewModel.inventoryCounts,
             inventoryErrors = viewModel.inventoryErrors,
             inventoryRefreshing = viewModel.inventoryRefreshing,

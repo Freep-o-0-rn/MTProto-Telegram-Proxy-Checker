@@ -120,7 +120,8 @@ class ProxyViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun updateSourceEnabled(sourceId: String, enabled: Boolean) {
-        if (ScanSession.state.value.running || checkingProxyKeys.isNotEmpty()) return
+        if (ScanSession.state.value.running || clearingProxyData ||
+            checkingProxyKeys.isNotEmpty()) return
         ProxySourceSettings.setSourceEnabled(getApplication(), sourceId, enabled)
         enabledSourceIds = ProxySourceSettings.enabledSourceIds(getApplication())
         refreshUniqueSelectedCount()
@@ -202,7 +203,8 @@ class ProxyViewModel(application: Application) : AndroidViewModel(application) {
         proxyCleanupMessage = null
         viewModelScope.launch {
             try {
-                val result = ScanSession.clearProxyData(getApplication())
+                val app: Application = getApplication()
+                val result: ProxyCleanupResult = ScanSession.clearProxyData(app)
                 // Drop both the live list and metadata; no scheduled save may revive them.
                 inventoryGeneration++
                 inventoryCounts = emptyMap()
