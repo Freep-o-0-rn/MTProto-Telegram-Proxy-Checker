@@ -7,24 +7,24 @@ import org.junit.Test
 
 class ProxySourceCatalogueTest {
     @Test
-    fun onlyExistingMtprotoFeedIsMarkedActive() {
+    fun bothProtocolFeedsAreActive() {
         val sources = ProxySourceCatalogue.entries
         assertEquals(2, sources.size)
         assertEquals(sources.size, sources.map { it.id }.distinct().size)
         val active = sources.filter { it.status == ProxySourceStatus.ACTIVE }
-        assertEquals(1, active.size)
-        assertEquals(ProxySourceProtocol.MTPROTO, active.single().protocol)
+        assertEquals(2, active.size)
+        assertTrue(active.any { it.protocol == ProxySourceProtocol.MTPROTO })
         assertEquals(
             "https://raw.githubusercontent.com/SoliSpirit/mtproto/master/all_proxies.txt",
-            active.single().sourceUrl
+            active.single { it.protocol == ProxySourceProtocol.MTPROTO }.sourceUrl
         )
     }
 
     @Test
-    fun futureSocks5SourceCannotBeMistakenForAnActiveMtprotoFeed() {
+    fun socks5HasItsOwnProtocolAndUrl() {
         val future = ProxySourceCatalogue.entries.single { it.id == "hookzof-socks5" }
         assertEquals(ProxySourceProtocol.SOCKS5, future.protocol)
-        assertEquals(ProxySourceStatus.PLANNED, future.status)
+        assertEquals(ProxySourceStatus.ACTIVE, future.status)
         assertTrue(future.sourceUrl.endsWith("/hookzof/socks5_list/master/proxy.txt"))
         assertFalse(future.protocol == ProxySourceProtocol.MTPROTO)
     }

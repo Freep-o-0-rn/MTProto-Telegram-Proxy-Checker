@@ -115,8 +115,15 @@ private class TdlibProbeClient : TelegramProbeClient {
         onResult: (TelegramCheckResult) -> Unit
     ) {
         val start = System.nanoTime()
+        val type = when (proxy.protocol) {
+            ProxySourceProtocol.MTPROTO -> TdApi.ProxyTypeMtproto(proxy.secret)
+            ProxySourceProtocol.SOCKS5 -> TdApi.ProxyTypeSocks5(
+                proxy.username.orEmpty(), proxy.password.orEmpty()
+            )
+            else -> throw IllegalArgumentException("Unsupported proxy protocol: ${proxy.protocol}")
+        }
         val request = TdApi.TestProxy(
-            TdApi.Proxy(proxy.server, proxy.port, TdApi.ProxyTypeMtproto(proxy.secret)),
+            TdApi.Proxy(proxy.server, proxy.port, type),
             dcId,
             timeoutSeconds
         )

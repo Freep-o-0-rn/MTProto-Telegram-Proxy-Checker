@@ -2,7 +2,7 @@ package com.example.telegramproxychecker
 
 /**
  * Source metadata used by settings and background inventory retrieval.
- * The runtime scan remains MTProto-only until the separate SOCKS5 checker ships.
+ * Both protocol types are supported through the single scan service.
  */
 enum class ProxySourceProtocol(val label: String) {
     MTPROTO("MTProto"),
@@ -41,7 +41,7 @@ internal object ProxySourceCatalogue {
             repository = "hookzof/socks5_list · proxy.txt",
             sourceUrl = "https://raw.githubusercontent.com/hookzof/socks5_list/master/proxy.txt",
             protocol = ProxySourceProtocol.SOCKS5,
-            status = ProxySourceStatus.PLANNED
+            status = ProxySourceStatus.ACTIVE
         )
     )
 }

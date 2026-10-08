@@ -145,6 +145,10 @@ fun ProxyApp(viewModel: ProxyViewModel) {
             inventoryCounts = viewModel.inventoryCounts,
             inventoryErrors = viewModel.inventoryErrors,
             inventoryRefreshing = viewModel.inventoryRefreshing,
+            scanLimit = viewModel.scanLimit,
+            scanAll = viewModel.scanAll,
+            onScanLimitChange = viewModel::updateScanLimit,
+            onScanAllChange = viewModel::updateScanAll,
             onRefreshInventory = viewModel::refreshSourceInventory,
             onMtprotoEnabledChange = viewModel::updateMtprotoSourceEnabled,
             onSocks5EnabledChange = viewModel::updateSocks5SourceEnabled

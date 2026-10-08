@@ -62,9 +62,9 @@ class ProxySourceFoundationTest {
     }
 
     @Test
-    fun sourceCatalogueDoesNotAccidentallyEnableSocks5Checker() {
+    fun sourceCatalogueEnablesSocks5AsSeparateProtocol() {
         val socks = ProxySourceCatalogue.entries.single { it.protocol == ProxySourceProtocol.SOCKS5 }
-        assertEquals(ProxySourceStatus.PLANNED, socks.status)
+        assertEquals(ProxySourceStatus.ACTIVE, socks.status)
         assertEquals("hookzof-socks5", socks.id)
     }
 }

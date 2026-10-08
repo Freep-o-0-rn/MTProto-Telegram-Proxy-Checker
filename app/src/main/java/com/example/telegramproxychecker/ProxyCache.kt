@@ -14,7 +14,7 @@ import org.json.JSONObject
 class ProxyCache(context: Context) {
     private val store = ProxySqliteStore.instance(context)
 
-    fun loadProxies(): List<MtProxy> = store.loadCheckedMtproto()
+    fun loadProxies(): List<MtProxy> = store.loadCheckedProxies()
     fun saveProxies(proxies: List<MtProxy>) = store.saveChecked(proxies)
 }
 
@@ -156,12 +156,12 @@ internal class ProxySqliteStore private constructor(context: Context) :
     }
 
     @Synchronized
-    fun loadCheckedMtproto(): List<MtProxy> {
+    fun loadCheckedProxies(): List<MtProxy> {
         importLegacyIfNeeded()
         val results = ArrayList<MtProxy>()
         readableDatabase.rawQuery(
-            "SELECT * FROM checked_proxies WHERE protocol = ? ORDER BY rowid",
-            arrayOf(ProxySourceProtocol.MTPROTO.name)
+            "SELECT * FROM checked_proxies ORDER BY rowid",
+            null
         ).use { cursor ->
             val cols = cursor.columnNames.withIndex().associate { it.value to it.index }
             fun str(name: String): String = cursor.getString(cols.getValue(name))
@@ -187,7 +187,7 @@ internal class ProxySqliteStore private constructor(context: Context) :
                     telegramError = strNullable("telegram_error"),
                     checkedAt = longNullable("checked_at"),
                     isFavorite = cursor.getInt(cols.getValue("favorite")) != 0,
-                    protocol = ProxySourceProtocol.MTPROTO,
+                    protocol = ProxySourceProtocol.valueOf(str("protocol")),
                     username = strNullable("username"),
                     password = strNullable("password"),
                     sourceId = str("source_id")
@@ -288,6 +288,43 @@ internal class ProxySqliteStore private constructor(context: Context) :
         } finally {
             db.endTransaction()
         }
+    }
+
+    /**
+     * A bounded, rotating selection from the current SOCKS5 feed.
+     * Unchecked entries precede previously checked ones, then oldest checks first.
+     * Checked timestamps survive process restarts, so the next run progresses
+     * without ever loading the entire remote feed into Compose or memory.
+     */
+    @Synchronized
+    fun nextSocksCandidates(sourceId: String, limit: Int): List<MtProxy> {
+        if (limit <= 0) return emptyList()
+        importLegacyIfNeeded()
+        val output = ArrayList<MtProxy>(limit)
+        readableDatabase.rawQuery(
+            """SELECT se.server, se.port, se.original_url, se.secret, se.username, se.password
+               FROM source_entries se
+               LEFT JOIN checked_proxies c ON c.proxy_key = se.proxy_key
+               WHERE se.source_id = ? AND se.protocol = ?
+               ORDER BY CASE WHEN c.checked_at IS NULL THEN 0 ELSE 1 END ASC,
+                        c.checked_at ASC, se.proxy_key ASC
+               LIMIT ?""".trimIndent(),
+            arrayOf(sourceId, ProxySourceProtocol.SOCKS5.name, limit.toString())
+        ).use { rows ->
+            while (rows.moveToNext()) {
+                output += MtProxy(
+                    server = rows.getString(0),
+                    port = rows.getInt(1),
+                    originalUrl = rows.getString(2),
+                    secret = rows.getString(3),
+                    username = if (rows.isNull(4)) null else rows.getString(4),
+                    password = if (rows.isNull(5)) null else rows.getString(5),
+                    protocol = ProxySourceProtocol.SOCKS5,
+                    sourceId = sourceId
+                )
+            }
+        }
+        return output
     }
 
     @Synchronized

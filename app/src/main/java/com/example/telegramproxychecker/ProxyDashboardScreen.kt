@@ -119,7 +119,7 @@ internal fun ProxyDashboardScreen(
                 actions = {
                     IconButton(
                         onClick = { viewModel.refresh(tcpOkOnly = true) },
-                        enabled = !isScanning && pendingSingle.isEmpty() && viewModel.mtprotoSourceEnabled && proxies.any { it.tcpOk == true },
+                        enabled = !isScanning && pendingSingle.isEmpty() && (viewModel.mtprotoSourceEnabled || viewModel.socks5SourceEnabled) && proxies.any { it.tcpOk == true },
                         modifier = Modifier.semantics { contentDescription = "Проверка доступных по TCP прокси" }
                     ) {
                         Text("↻", fontSize = 26.sp, color = if (isScanning) mutedText else blue)
@@ -132,7 +132,7 @@ internal fun ProxyDashboardScreen(
                         DropdownMenu(expanded = moreOpen, onDismissRequest = { moreOpen = false }) {
                             DropdownMenuItem(
                                 text = { Text("Проверка") },
-                                enabled = !isScanning && pendingSingle.isEmpty() && viewModel.mtprotoSourceEnabled && proxies.any { it.tcpOk == true },
+                                enabled = !isScanning && pendingSingle.isEmpty() && (viewModel.mtprotoSourceEnabled || viewModel.socks5SourceEnabled) && proxies.any { it.tcpOk == true },
                                 onClick = {
                                     moreOpen = false
                                     viewModel.refresh(tcpOkOnly = true)
@@ -140,7 +140,7 @@ internal fun ProxyDashboardScreen(
                             )
                             DropdownMenuItem(
                                 text = { Text("Полная проверка") },
-                                enabled = !isScanning && pendingSingle.isEmpty() && viewModel.mtprotoSourceEnabled,
+                                enabled = !isScanning && pendingSingle.isEmpty() && (viewModel.mtprotoSourceEnabled || viewModel.socks5SourceEnabled),
                                 onClick = {
                                     moreOpen = false
                                     viewModel.refresh(force = true)
@@ -489,6 +489,7 @@ private fun CompactProxyCard(
     val status = when {
         isWorking -> "Telegram OK"
         skippedTelegram -> "Не проверен · TCP FAIL"
+        proxy.telegramError?.startsWith("SOCKS5:") == true -> "SOCKS5 FAIL"
         proxy.telegramOk == false -> "Telegram FAIL"
         else -> "Не проверен"
     }
@@ -524,7 +525,7 @@ private fun CompactProxyCard(
                         overflow = TextOverflow.Ellipsis
                     )
                     Text(
-                        ":${proxy.port} · $status" +
+                        ":${proxy.port} · ${proxy.protocol.label} · $status" +
                             (if (isWorking) " · ${formatDashboardPing(proxy.telegramPingMs)}" else ""),
                         color = if (isWorking) green else mutedText,
                         fontSize = 10.sp,
@@ -567,6 +568,7 @@ private fun CompactProxyCard(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 13.dp, vertical = 10.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
+                DetailValue("Протокол", proxy.protocol.label)
                 DetailValue("Telegram", if (isWorking) "OK · ${formatDashboardPing(proxy.telegramPingMs)}" else status)
                 DetailValue(
                     "TCP",
@@ -579,22 +581,23 @@ private fun CompactProxyCard(
                 DetailValue("Адрес", "${proxy.server}:${proxy.port}")
                 DetailValue("Проверено", formatDashboardCheckedAt(proxy.checkedAt))
                 if (!proxy.telegramError.isNullOrBlank() && proxy.telegramOk == false) {
-                    Text("TDLib: ${proxy.telegramError}", color = red, fontSize = 11.sp)
+                    Text(proxy.telegramError.orEmpty(), color = red, fontSize = 11.sp)
                 }
-                var secretVisible by remember(proxy.cacheKey) { mutableStateOf(false) }
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Секрет", color = mutedText, fontSize = 11.sp, modifier = Modifier.weight(1f))
-                    Text(
-                        if (secretVisible) proxy.secret else "••••••••",
-                        color = mainText,
-                        fontSize = 10.sp,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(2f)
-                    )
-                    TextButton(onClick = { secretVisible = !secretVisible }) {
-                        Text(if (secretVisible) "Скрыть" else "Показать", fontSize = 11.sp)
+                if (proxy.protocol == ProxySourceProtocol.MTPROTO) {
+                    var secretVisible by remember(proxy.cacheKey) { mutableStateOf(false) }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("Секрет", color = mutedText, fontSize = 11.sp, modifier = Modifier.weight(1f))
+                        Text(
+                            if (secretVisible) proxy.secret else "••••••••",
+                            color = mainText, fontSize = 10.sp, maxLines = 2,
+                            overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(2f)
+                        )
+                        TextButton(onClick = { secretVisible = !secretVisible }) {
+                            Text(if (secretVisible) "Скрыть" else "Показать", fontSize = 11.sp)
+                        }
                     }
+                } else if (!proxy.username.isNullOrEmpty()) {
+                    DetailValue("Авторизация", "Требуется")
                 }
                 Row(
                     modifier = Modifier.fillMaxWidth(),
