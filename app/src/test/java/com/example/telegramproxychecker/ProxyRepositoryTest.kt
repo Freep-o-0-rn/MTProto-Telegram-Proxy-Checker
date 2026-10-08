@@ -435,4 +435,94 @@ class ProxyRepositoryTest {
         assertEquals(20L, output.single().checkedAt)
     }
 
+    @Test
+    fun quickCheckRechecksUnstableTelegramOkButSkipsOrdinaryTcpFailures() = runTest {
+        val unstable = testProxy(500).copy(
+            tcpOk = false, telegramOk = true, telegramPingMs = 400L, checkedAt = 10L
+        )
+        val tcpOk = testProxy(501).copy(
+            tcpOk = true, telegramOk = false, checkedAt = 10L
+        )
+        val dead = testProxy(502).copy(
+            tcpOk = false, telegramOk = false, checkedAt = 10L
+        )
+        val attempted = mutableListOf<String>()
+        val telegramAttempted = mutableListOf<String>()
+        val repository = ProxyRepository(
+            sourceLoader = { listOf(unstable, tcpOk, dead) },
+            tcpCheck = {
+                attempted += it.cacheKey
+                it.copy(tcpOk = it.cacheKey == tcpOk.cacheKey)
+            },
+            telegramCheck = {
+                telegramAttempted += it.cacheKey
+                if (it.cacheKey == unstable.cacheKey)
+                    it.copy(telegramOk = true, telegramPingMs = 80L)
+                else it.copy(telegramOk = false, telegramError = "TDLib timeout")
+            },
+            nowMillis = { 100L }
+        )
+
+        val output = repository.loadAndCheckProxies(
+            cachedProxies = listOf(unstable, tcpOk, dead),
+            tcpOkOnly = true,
+            parallelChecks = 1
+        )
+        assertEquals(setOf(unstable.cacheKey, tcpOk.cacheKey), attempted.toSet())
+        assertEquals(setOf(unstable.cacheKey, tcpOk.cacheKey), telegramAttempted.toSet())
+        val updatedUnstable = output.single { it.cacheKey == unstable.cacheKey }
+        assertTrue(updatedUnstable.isUnstableTelegramOk)
+        assertEquals(80L, updatedUnstable.telegramPingMs)
+        assertEquals(100L, updatedUnstable.checkedAt)
+        assertEquals(dead, output.single { it.cacheKey == dead.cacheKey })
+    }
+
+    @Test
+    fun quickCheckPreservesPriorUnstableTelegramOkOnTransientTdlibFailure() = runTest {
+        val unstable = testProxy(510).copy(
+            tcpOk = false, telegramOk = true, telegramPingMs = 190L, checkedAt = 10L
+        )
+        var telegramCalls = 0
+        val repository = ProxyRepository(
+            sourceLoader = { listOf(unstable) },
+            tcpCheck = { it.copy(tcpOk = false) },
+            telegramCheck = {
+                telegramCalls++
+                it.copy(telegramOk = false, telegramPingMs = null, telegramError = "TDLib timeout")
+            },
+            nowMillis = { 100L }
+        )
+        val output = repository.loadAndCheckProxies(
+            cachedProxies = listOf(unstable),
+            tcpOkOnly = true,
+            parallelChecks = 1
+        )
+        assertEquals(1, telegramCalls)
+        assertEquals(unstable, output.single())
+        assertTrue(output.single().isUnstableTelegramOk)
+    }
+
+    @Test
+    fun quickCheckPromotesUnstableProxyWhenTcpAndTdlibBothRecover() = runTest {
+        val unstable = testProxy(520).copy(
+            tcpOk = false, telegramOk = true, telegramPingMs = 250L, checkedAt = 10L
+        )
+        val repository = ProxyRepository(
+            sourceLoader = { listOf(unstable) },
+            tcpCheck = { it.copy(tcpOk = true, tcpPingMs = 18L) },
+            telegramCheck = { it.copy(telegramOk = true, telegramPingMs = 65L) },
+            nowMillis = { 100L }
+        )
+        val output = repository.loadAndCheckProxies(
+            cachedProxies = listOf(unstable),
+            tcpOkOnly = true,
+            parallelChecks = 1
+        )
+        assertFalse(output.single().isUnstableTelegramOk)
+        assertEquals(true, output.single().tcpOk)
+        assertEquals(true, output.single().telegramOk)
+        assertEquals(65L, output.single().telegramPingMs)
+        assertEquals(100L, output.single().checkedAt)
+    }
+
 }
