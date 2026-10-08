@@ -258,6 +258,23 @@ fun ProxyApp(viewModel: ProxyViewModel) {
                 }
 
                 item {
+                    if (proxies.isNotEmpty() && !isLoading) {
+                        Button(
+                            onClick = { viewModel.refresh(force = true) },
+                            enabled = checkingProxyKeys.isEmpty(),
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(16.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = Color(0xFF19364F),
+                                contentColor = TextMain
+                            )
+                        ) {
+                            Text("Полная перепроверка (${proxies.size})")
+                        }
+                    }
+                }
+
+                item {
                     if (isLoading) {
                         LoadingProgressCard(
                             checkedCount = checkedCount,

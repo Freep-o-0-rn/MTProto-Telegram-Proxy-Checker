@@ -197,4 +197,22 @@ class ProxyRepositoryTest {
         assertEquals(40, (firstGroup + secondGroup).toSet().size)
     }
 
+
+    @Test
+    fun forcedScanChecksEveryCachedFailure() = runTest {
+        val stale = (0 until 50).map {
+            testProxy(it).copy(checkedAt = 5L, telegramOk = false)
+        }
+        val requested = mutableListOf<String>()
+        val repository = ProxyRepository(
+            sourceLoader = { stale },
+            tcpCheck = { requested += it.cacheKey; it.copy(tcpOk = false) },
+            telegramCheck = { error("TCP is unavailable") },
+            nowMillis = { 3_600_000L }
+        )
+        val refreshed = repository.loadAndCheckProxies(stale, force = true)
+        assertEquals(50, requested.distinct().size)
+        assertEquals(50, refreshed.size)
+    }
+
 }
