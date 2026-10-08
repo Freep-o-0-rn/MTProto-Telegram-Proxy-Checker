@@ -199,7 +199,7 @@ class ProxyRepositoryTest {
             testProxy(0).copy(tcpOk = true, checkedAt = 3_599_000L, telegramOk = true),
             testProxy(1).copy(tcpOk = true, checkedAt = 3_599_000L, telegramOk = false),
             testProxy(2).copy(tcpOk = false, checkedAt = 1L, telegramOk = false),
-            testProxy(3).copy(checkedAt = null)
+            testProxy(3).copy(tcpOk = null, checkedAt = null)
         )
         val attempted = mutableListOf<String>()
         val telegramAttempts = mutableListOf<String>()
