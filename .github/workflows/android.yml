@@ -3,7 +3,7 @@ name: Android checks
 on:
   pull_request:
   push:
-    branches: [main, 'perf/**']
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -15,11 +15,14 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
       - uses: android-actions/setup-android@v3
+        with:
+          packages: 'platform-tools platforms;android-36 build-tools;35.0.0'
+          log-accepted-android-sdk-licenses: false
       - uses: gradle/actions/setup-gradle@v4
       - name: Unit tests and debug APK
         run: bash gradlew :app:testDebugUnitTest :app:assembleDebug --stacktrace
