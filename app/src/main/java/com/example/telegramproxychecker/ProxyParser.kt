@@ -22,7 +22,7 @@ fun parseProxyLine(line: String): MtProxy? {
             val i = pair.indexOf('=')
             if (i <= 0) null else
                 URLDecoder.decode(pair.substring(0, i), "UTF-8") to
-                    URLDecoder.decode(pair.substring(i + 1), "UTF-8")
+                    URLDecoder.decode(pair.substring(i + 1).replace("+", "%2B"), "UTF-8")
         }.toMap()
     } catch (_: Exception) { return null }
 

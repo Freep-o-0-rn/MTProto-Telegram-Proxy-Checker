@@ -191,6 +191,28 @@ class ProxyRepositoryTest {
     }
 
     @Test
+    fun limitedScanGivesEachEnabledMtprotoFeedAChance() = runTest {
+        val sources = listOf("solispirit-mtproto", "tgmtproxy-mtproto", "shablin-mtproto",
+            "dubblebyte-mtproto")
+        val mt = sources.flatMapIndexed { index, id ->
+            (0 until 100).map { i -> testProxy(index * 100 + i).copy(sourceId = id) }
+        }
+        val attempts = mutableListOf<String>()
+        val repo = ProxyRepository(
+            sourceLoader = { error("Must not use the legacy source") },
+            tcpCheck = { attempts += it.sourceId; it.copy(tcpOk = false, telegramOk = false) },
+            telegramCheck = { error("Telegram cannot follow failed TCP in incremental run") }
+        )
+        val checked = repo.loadAndCheckProxies(
+            cachedProxies = emptyList(), mtprotoProxies = mt, scanLimit = 12, parallelChecks = 1
+        )
+        assertEquals(400, checked.size)
+        assertEquals(12, attempts.size)
+        assertEquals(sources, attempts.distinct())
+        assertEquals(sources.map { 3 }, sources.map { id -> attempts.count { it == id } })
+    }
+
+    @Test
     fun progressiveResultsRespectBothFavoriteAdditionAndRemoval() {
         val snapshot = listOf(testProxy(1).copy(isFavorite = true), testProxy(2))
         val current = listOf(testProxy(1), testProxy(2).copy(isFavorite = true))
